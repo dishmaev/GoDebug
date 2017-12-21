@@ -1,0 +1,50 @@
+[{
+    "id": "dlv_menu",
+    "caption": "Delve",
+    "children": [
+        { "command": "dlv_test", "caption": "My test"},
+        { "caption": "-", "id": "breakpoints" },
+        { "command": "dlv_toggle_breakpoint", "caption": "Toggle Breakpoint" },
+        { "command": "dlv_launch_debug", "caption": "Run (Debug)" },
+        { "command": "dlv_launch_test", "caption": "Run (Test)" },
+        { "command": "dlv_pause", "caption": "Pause"},
+        { "command": "dlv_continue", "caption": "Continue" },
+        { "command": "dlv_step_over", "caption": "Step Over" },
+        { "command": "dlv_step_into", "caption": "Step Into" },
+        { "command": "dlv_step_out", "caption": "Step Out" },
+        {
+            "caption": "Delve: Step Next Instruction",
+            "command": "dlv_next_instruction"
+        },
+        { "command": "dlv_exit", "caption": "Stop Debugging"},
+        { "caption": "-", "id": "dlv_views" },
+        {
+            "caption": "Open Breakpoint View",
+            "command": "dlv_open_breakpoint_view"
+        },
+        {
+            "caption": "Open Callstack View",
+            "command": "dlv_open_callstack_view"
+        },
+        {
+            "caption": "Open Goroutines View",
+            "command": "dlv_open_goroutines_view"
+        },
+        {
+            "caption": "Open Console View",
+            "command": "dlv_open_console_view"
+        },
+        {
+            "caption": "Open Session View",
+            "command": "dlv_open_session_view"
+        },
+        {
+            "caption": "Open Variables View",
+            "command": "dlv_open_variables_view"
+        },
+        {
+            "caption": "Add watch",
+            "command": "dlv_add_watch"
+        }
+    ]
+}]
