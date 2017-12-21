@@ -3,6 +3,6 @@
 Delve plugin for Sublime Text 3.
 
 Based on ideas and sources:
-* [https://github.com/quarnster/SublimeGDB](SublimeGDB)
-* [https://github.com/lloiser/go-debug](go-debug)
+* [SublimeGDB](https://github.com/quarnster/SublimeGDB)
+* [go-debug](https://github.com/lloiser/go-debug)
 
