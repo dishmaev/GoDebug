@@ -8,6 +8,9 @@ import traceback
 import os
 import sys
 import re
+import json
+import shlex
+import socket 
 
 try:
     import Queue
@@ -898,9 +901,9 @@ class DlvLaunch():
         global dlv_shutting_down
         global DEBUG
         global DEBUG_FILE
-        cmd = ""
+        cmd = []
         view = self.window.active_view()
-        DEBUG = get_setting("debug", False, view)
+        DEBUG = get_setting("debug", True, view)
         DEBUG_FILE = expand_path(get_setting("debug_file", "stdout", view), self.window)
         if DEBUG:
             print("Will write debug info to file: %s" % DEBUG_FILE)
@@ -920,26 +923,24 @@ class DlvLaunch():
                 v2 = wnd.open_file("%s/User/SublimeDelve.sublime-settings" % sublime.packages_path())
                 wnd.set_view_index(v2, 1, 0)
                 return
-            cmd = get_setting("dlv_cmd", "notset", view)
+            cmd.append(get_setting("dlv_cmd", "dlv", view))
             if self.configuration == "debug":
-                cmd = cmd + " " + get_setting("dlv_debug_cmd", "debug", view)
+                cmd.append(get_setting("dlv_debug_config", "debug", view))
             else:
-                cmd = cmd + " " + get_setting("dlv_test_cmd", "test", view)
-            cmd = cmd + " " + get_setting("dlv_options", "test", view)
-            args = get_setting("arguments", "")
+                cmd.append(get_setting("dlv_test_config", "test", view))
+            cmd.append("--headless")
+            cmd.append("--accept-multiclient")
+            cmd.append("--api-version=2")
+            if get_setting("dlv_log", "false", view) == "true":
+                cmd.append("--log")
+            cmd.append("--listen=%s:%s" % (get_setting("dlv_host", "localhost", view), get_setting("dlv_port", "3456", view)))
+            args = get_setting("args", "", view)
             if args is not None and args != "":
-                cmd = cmd + " -- " + args
-            log_debug("Running: %s\n" % (cmd))
+                cmd.append("--")
+                cmd.append(args)
+            log_debug("Running: %s\n" % " ".join(cmd))
             log_debug("In directory: %s\n" % workingdir)            
-            # get env settings
-            env_copy = os.environ.copy()
-            dlv_env = get_setting("env", "")
-            if dlv_env == "":
-                dlv_env = None
-            else:
-                env_copy.update(dlv_env)
-            dlv_env = env_copy
-            dlv_process = subprocess.Popen(cmd, shell=True, cwd=workingdir, env=dlv_env,
+            dlv_process = subprocess.Popen(cmd, shell=False, cwd=workingdir,
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             log_debug("Process: %s\n" % dlv_process)
             dlv_bkp_window = sublime.active_window()
@@ -994,7 +995,14 @@ class DlvExit(sublime_plugin.WindowCommand):
         global dlv_shutting_down
         dlv_shutting_down = True
         wait_until_stopped()
-        run_cmd(get_setting("exit_cmd", "exit"), True)
+        try:
+#            outs, errs = dlv_process.communicate("exit".encode(sys.getdefaultencoding()), timeout=get_setting("dlv_timeout", 20))
+            dlv_process.terminate()
+            log_debug("dlv_stdout: Delve normal exit\n")
+        except:
+            traceback.print_exc()
+            dlv_process.kill()
+            log_debug("dlv_stderr: Delve kill after timeout\n")
 
     def is_enabled(self):
         return is_running()
@@ -1068,8 +1076,42 @@ class DlvOpenBreakpointView(sublime_plugin.WindowCommand):
 
 class DlvTest(sublime_plugin.WindowCommand):
     def run(self):
-        if dlv_session_view is not None:
-            dlv_session_view.add_line("test")
-            print("mytest yes")
-        else:
-            print("mytest no")
+        thing=""
+        callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"file":"/home/dmitry/Projects/gotest/hello.go","line":11}}],"jsonrpc": "2.0","id":3}
+        message = json.dumps(callmethod)
+        message_bytes = message.encode('utf-8')
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(get_setting("dlv_timeout", "20"))
+        sock.connect(('localhost', 3456))
+        sock.send(message_bytes)
+        # response_bytes = []
+        # while True:
+        #     try:
+        #         data = sock.recv(4096)
+        #     except socket.timeout:
+        #         break
+        #     if not data: 
+        #         break
+        #     response_bytes.append(data)
+        #     if len(data) < 4096:
+        #         break
+        sock.close()
+#        response = ''.join(response_bytes)
+#        response = join(str(response))
+#        print(response)
+
+#         headers = {'content-type': 'application/json'}
+#         callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"addr":4199019}}],"jsonrpc": "2.0","id":3}
+#         data = json.dumps(callmethod)
+#         data = urllib.parse.urlencode(callmethod)
+#         data = data.encode('ascii')
+# #        url = "http://localhost:3456?%s" % data
+#         req = urllib.request.Request('http://localhost:3456', data)
+#         req.add_header('content-type', 'application/json')
+#         try:
+#             with urllib.request.urlopen(req) as response:
+#                 info = response.read().decode('utf-8')
+# #            thing = json.loads(str(info))
+#         except:
+#             traceback.print_exc()
+# #        log_debug(thing)

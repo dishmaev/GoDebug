@@ -83,25 +83,32 @@
     // "arguments": "foo bar"
     // To provide user input (stdin) use
     // "arguments": "< input.dat"
-    "arguments": "",
+    "args": "",
 
     // The command to use to run the Delve https://github.com/derekparker/delve
     "dlv_cmd": "dlv",
 
-    // The command to use to run the Delve
-    "dlv_options": "--headless --api-version=2 --log --listen=localhost:3456",
+    // The host of the Delve server
+    "dlv_host": "localhost",
+
+    // The port of the Delve server
+    "dlv_port": "3456",
 
     // For the larger binaries with lot of shared libraries
     // the loading within the gdb could take much longer.
     // Configure the thread wait timeout by setting dlv_timeout
     "dlv_timeout": 20,
 
-    // The command to use to run debug
-    "dlv_debug_cmd": "debug",
+    // If set, Delve server run in logging mode
+    "dlv_log": false,
 
-    // The command to use to run test 
-    "dlv_test_cmd": "test",
+    // The command to use to run debug configuration
+    "dlv_debug_config": "debug",
 
+    // The command to use to run test configuration 
+    "dlv_test_config": "test",
+
+    
     // The command to use to run the program.
     "exec_cmd": "continue",
 
