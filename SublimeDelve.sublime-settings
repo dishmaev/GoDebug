@@ -1,189 +1,22 @@
 {
-    // All options in here can also be specified in your project settings
-    // with a prepended "sublimedelve_". You probably want to
-    // have something like this in your project settings:
-    //
-    // "settings":
-    // {
-    //      "sublimedelve_workingdir": "${folder:${project_path:your_executable_name}}",
-    //      // NOTE: You MUST provide --interpreter=mi for the plugin to work
-    //      "sublimedelve_commandline": "gdb --interpreter=mi ./your_executable_name"
-    //
-    // }
-    // 
-    // generalized pattern for using always the current open file with an executable name 
-    // as the current file
-    // "settings":
-    // {
-    //      "sublimedelve_workingdir": "${folder:${file}}",
-    //      // put your arguments hear
-    //      "sublimedelve_arguments": "",
-    //      // NOTE: You MUST provide --interpreter=mi for the plugin to work
-    //      "sublimedelve_commandline": "gdb --interpreter=mi --args ./${file_base_name}"
-    //      
-    //
-    // }
-    //
-    // If you want to debug different executables as part of the same project, you can add something
-    // like this to your project settings:
-    //
-    // "settings":
-    // {
-    //      "sublimedelve_executables":
-    //      {
-    //          "first_executable_name":
-    //          {
-    //              "workingdir": "${folder:${project_path:first_executable_name}}",
-    //              "commandline": "gdb --interpreter=mi ./first_executable"
-    //          },
-    //          "second_executable_name":
-    //          {
-    //              "workingdir": "${folder:${project_path:second_executable_name}}",
-    //              "commandline": "gdb --interpreter=mi ./second_executable"
-    //          }
-    //      }
-    // }
-    //
-    // When you start debugging, you will be prompted to choose from one of your executables. Any
-    // settings not specified for that project will be searched in your project settings (with a
-    // sublimedelve_ prefix), then in your user settings, then in the default settings.
-    //
-    // (Note: if you have multiple executables, and you have a breakpoint set in a source file which
-    // is not included in the current executable, you may have to set either debug_ext or
-    // i_know_how_to_use_gdb_thank_you_very_much.)
-    //
-    // ${home}, ${project_path:}, ${folder:}, ${file} and ${file_base_name}
-    // tokens can be used in 'workingdir', 'commandline', 'arguments' options.
-    //
-    // ${home} is replaced with the value of the HOME environment variable.
-    //
-    // ${project_path:} tries to find a file with the given name in all the registered project folders and
-    // returns the first file found, or the original file name if none is found.
-    // Example: ${project_path:main.go} tries to find a file named "main.go" relative
-    // to the current project's folders. If none is found, it is replaced with "main.go".
-    //
-    // ${folder:} is replaced with the dirname of the given path.
-    // Example: ${folder:/path/to/file} is replaced with "/path/to".
-    // "workingdir": "/tmp",
-    //
-    // ${file} is replaced with absolute path to currently open file (if any)
-    // Example: /home/user/main.go
-    //
-    // ${file_base_name} is replaced with name without extension of currently
-    // open file (if any)
-    // Example: replaced with "main" for file "/home/user/main.go"
-    "workingdir": "${folder:${file}}",
-
-    // Environments for running  (OPTIONAL)
-    // Example: "env": {"DISPLAY": ":100"}
-    "env": "",
-
-    // Arguments for the program. (OPTIONAL)
-    // Example: to run "./executable foo bar"
-    // "arguments": "foo bar"
-    // To provide user input (stdin) use
-    // "arguments": "< input.dat"
-    "args": "",
-
-    // The command to use to run the Delve https://github.com/derekparker/delve
-    "dlv_cmd": "dlv",
+    // The mode of run Delve server, "remote" mean is not need start dlv headless instance
+    //"mode": "local" | "test" | "remove"
+    "mode": "local",
 
     // The host of the Delve server
-    "dlv_host": "localhost",
+    "host": "localhost",
 
     // The port of the Delve server
-    "dlv_port": "3456",
+    "port": "3456",
 
-    // For the larger binaries with lot of shared libraries
-    // the loading within the gdb could take much longer.
-    // Configure the thread wait timeout by setting dlv_timeout
-    "dlv_timeout": 20,
+    // If set, Delve server run in logging mode. Used for "local" or "test" mode
+    "log": false,
 
-    // If set, Delve server run in logging mode
-    "dlv_log": false,
+    // Arguments for run the program. (OPTIONAL)
+    "args": "",
 
-    // The command to use to run debug configuration
-    "dlv_debug_config": "debug",
-
-    // The command to use to run test configuration 
-    "dlv_test_config": "test",
-
-    
-    // The command to use to run the program.
-    "exec_cmd": "continue",
-
-    // The command to use to exit from Delve session.
-    "exit_cmd": "exit",
-
-    // Immediately run the target upload connecting
-    // When attaching to a remote program, you
-    // may want to set this to false 
-    "run_after_init": true,
-
-    // Attempt to update stack information while the program is running
-    // If your remote target does not support non-stop, set this to false
-    "update_while_running" : true,
-
-    // Define debugging window layout (window split)
-    // first define column/row separators, then refer to them to define cells
-    "layout":
-    {
-        "cols": [0.0, 0.33, 0.66, 1.0],
-        "rows": [0.0, 0.75, 1.0],
-        "cells":
-        [ // c1 r1 c2 r2
-            [0, 0, 3, 1], // -> (0.00, 0.00), (1.00, 0.75)
-            [0, 1, 1, 2], // -> (0.00, 0.75), (0.33, 1.00)
-            [1, 1, 2, 2], // -> (0.33, 0.75), (0.66, 1.00)
-            [2, 1, 3, 2]  // -> (0.66, 0.75), (1.00, 1.00)
-        ]
-    },
-
-    // visual stuff
-    "breakpoint_scope": "keyword.dlv",
-    "breakpoint_icon": "circle",
-    "position_scope": "entity.name.class",
-    "position_icon": "bookmark",
-    "changed_variable_scope": "entity.name.class",
-    "changed_variable_icon": "",
-
-    // The group used for opening files
-    "file_group": 0,
-
-    "session_group": 1,
-    "session_open": true,
-
-    "console_group": 1,
-    "console_open": true,
-
-    "variables_group": 1,
-    "variables_open": true,
-
-    "callstack_group": 2,
-    "callstack_open": true,
-
-    "registers_group": 2,
-    "registers_open": false,
-
-    "disassembly_group": 2,
-    "disassembly_open": false,
-    // Set to "intel" for intel disassembly flavor. All other
-    // values default to using "att" flavor.
-    "disassembly_flavor": "intel",
-
-    "threads_group": 3,
-    "threads_open": true,
-
-    "breakpoints_group": 3,
-    "breakpoints_open": true,
-
-    // If set to true will push the layout before debugging
-    // and pop it when debugging ends
-    "push_pop_layout": true,
-
-    // If set to true will close the gdb views when the
-    // debugging session ends
-    "close_views": true,
+    // The current working directory where delve starts from. Used for "local" or "test" mode. (OPTIONAL)
+    "cwd": "",
 
     // File to optionally write all the raw data read from and written to the gdb session and the inferior program.
     // Setting it to "stdout" will write the output to the python console
@@ -191,7 +24,4 @@
 
     // Whether to log the raw data read from and written to the gdb session and the inferior program.
     "debug": true,
-
-    // Disables showing the error message dialog when something goes wrong
-    "i_know_how_to_use_dlv_thank_you_very_much": false
 }

@@ -18,59 +18,15 @@
         "command": "dlv_input"
     },
     {
-        "caption": "SublimeDelve: Run (Debug)",
-        "command": "dlv_launch_debug"
+        "caption": "SublimeDelve: Start debugging",
+        "command": "dlv_start"
     },
     {
-        "caption": "SublimeDelve: Run (Test)",
-        "command": "dlv_launch_test"
+        "caption": "SublimeDelve: Stop",
+        "command": "dlv_stop"
     },
     {
-        "caption": "SublimeDelve: Continue",
-        "command": "dlv_continue"
+        "caption": "SublimeDelve: Open Session View",
+        "command": "dlv_open_session_view"
     },
-    {
-        "caption": "SublimeDelve: Pause",
-        "command": "dlv_pause"
-    },
-    {
-        "caption": "SublimeDelve: Step Over",
-        "command": "dlv_step_over"
-    },
-    {
-        "caption": "SublimeDelve: Step Into",
-        "command": "dlv_step_into"
-    },
-    {
-        "caption": "SublimeDelve: Step Next Instruction",
-        "command": "dlv_next_instruction"
-    },
-    {
-        "caption": "SublimeDelve: Step Out",
-        "command": "dlv_step_out"
-    },
-    {
-        "caption": "SublimeDelve: Stop Debugging",
-        "command": "dlv_exit"
-    },
-    {
-        "caption": "SublimeDelve: Open Console View",
-        "command": "dlv_open_console_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Callstack View",
-        "command": "dlv_open_callstack_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Goroutines View",
-        "command": "dlv_open_goroutines_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Variables View",
-        "command": "dlv_open_variables_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Breakpoint View",
-        "command": "dlv_open_breakpoint_view"
-    }
 ]

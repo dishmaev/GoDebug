@@ -1,99 +1,12 @@
 [
-
     {
-        "command": "dlv_edit_register",
-        "keys": ["enter"],
-        "context": [{"key": "dlv_running"}, {"key": "dlv_register_view"}]
-    },
-    {
-        "command": "dlv_edit_variable",
-        "keys": ["enter"],
-        "context": [{"key": "dlv_running"}, {"key": "dlv_variables_view"}]
-    },
-    {
-        "command": "dlv_expand_variable",
-        "keys": ["right"],
-        "context": [{"key": "dlv_running"}, {"key": "dlv_variables_view"}]
-    },
-    {
-        "command": "dlv_collapse_variable",
-        "keys": ["left"],
-        "context": [{"key": "dlv_running"}, {"key": "dlv_variables_view"}]
-    },
-    {
-        "command": "dlv_input",
-        "keys": ["shift+f5"]
-    },
-    {
-        "command": "dlv_toggle_breakpoint",
-        "keys": ["f9"]
-    },
-    {
-        "command": "dlv_launch_debug",
+        "command": "dlv_start",
         "context": [{"key": "dlv_running", "operator": "equal", "operand": false}],
-        "keys": ["f5"]
-    },
-    {
-        "command": "dlv_launch_test",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": false}],
-        "keys": ["f6"]
-    },
-    {
-        "command": "dlv_exit",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
         "keys": ["ctrl+f5"]
     },
     {
-        "command": "dlv_continue",
+        "command": "dlv_stop",
         "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["f5"]
-    },
-    {
-        "command": "dlv_step_over",
-        "context":
-        [
-            {"key": "dlv_running", "operator": "equal", "operand": true},
-            {"key": "dlv_disassembly_view", "operand": false}
-        ],
-        "keys": ["f10"]
-    },
-    {
-        "command": "dlv_next_instruction",
-        "context":
-        [
-            {"key": "dlv_running", "operator": "equal", "operand": true},
-            {"key": "dlv_disassembly_view", "operand": true}
-        ],
-        "keys": ["f10"]
-    },
-    {
-        "command": "dlv_step_into",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["f11"]
-    },
-    {
-        "command": "dlv_step_out",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["shift+f11"]
-    },
-    {
-        "command": "dlv_open_register_view",
-        "context": [{"key": "dlv_register_view_open", "operator": "equal", "operand": false }],
-        "keys": ["ctrl+alt+g"]
-    },
-    {
-        "command": "dlv_open_disassembly_view",
-        "context": [{"key": "dlv_disassembly_view_open", "operator": "equal", "operand": false }],
-        "keys": ["ctrl+f11"]
-    },
-    {
-        "command": "dlv_prev_cmd",
-        "context": [{"key": "dlv_input_view"}],
-        "keys": ["up"]
-    },
-    {
-        "command": "dlv_next_cmd",
-        "context": [{"key": "dlv_input_view"}],
-        "keys": ["down"]
+        "keys": ["ctrl+f6"]
     }
 ]
