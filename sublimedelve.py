@@ -279,7 +279,7 @@ def dlv_output(pipe, cmd_session=None):
         logger.info("Delve session closed")
         sublime.set_timeout(session_ended_status_message, 0)
         if is_local_mode():
-            sublime.set_timeout(cleanup_server(), 0)
+            sublime.set_timeout(cleanup_server, 0)
     if (not is_local_mode() and dlv_process is not None and pipe == dlv_process.stdout) or \
                 (is_local_mode() and dlv_server_process is not None and pipe == dlv_server_process.stdout):
         if logger.is_started():
@@ -301,11 +301,11 @@ def cleanup_server():
     if is_server_running():
         try:
             dlv_server_process.terminate()
-            logger.debug("Delve server normal exit")
+            logger.info("Delve server closed")
         except:
             traceback.print_exc()
             dlv_server_process.kill()
-            logger.error("Delve server kill after timeout")
+            logger.info("Delve server killed after timeout")
 
 def load_session_subprocess(cmd_session):
     global dlv_process
@@ -397,10 +397,10 @@ class DlvStop(sublime_plugin.WindowCommand):
                 traceback.print_exc()
                 dlv_process.kill()
                 logger.error("Kill after timeout")
+                cleanup_session()
 
-        cleanup_session()
-        if is_local_mode():
-            cleanup_server()
+        # if is_local_mode():
+        #     cleanup_server()
 
     def is_enabled(self):
         return is_running()
