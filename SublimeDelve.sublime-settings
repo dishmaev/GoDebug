@@ -1,7 +1,7 @@
 {
     // The mode of run Delve server, "remote" mean is not need start dlv headless instance
-    //"mode": "local" | "test" | "remove"
-    "mode": "local",
+    //"mode": "debug" | "test" | "remove"
+    "mode": "debug",
 
     // The host of the Delve server
     "host": "localhost",
@@ -18,10 +18,14 @@
     // The current working directory where delve starts from. Used for "local" or "test" mode. (OPTIONAL)
     "cwd": "",
 
-    // File to optionally write all the raw data read from and written to the gdb session and the inferior program.
+    // File to optionally write all the raw data read from and written to the Delve session and the inferior program.
     // Setting it to "stdout" will write the output to the python console
     "debug_file": "stdout",
 
-    // Whether to log the raw data read from and written to the gdb session and the inferior program.
+    // Defalt logging level
+    //"debug_level": "debug" | "info"
+    "debug_level": "debug",
+
+    // Whether to log the raw data read from and written to the Delve session and the inferior program.
     "debug": true,
 }

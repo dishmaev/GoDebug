@@ -5,10 +5,10 @@ import threading
 import traceback
 import logging
 import queue
-import time
-import sys
+import os
 
 dlv_input_view = None
+dlv_mode = ""
 dlv_server_process = None
 dlv_process = None
 
@@ -16,7 +16,7 @@ def get_setting(key, default=None, view=None):
     if view is None:
         window = sublime.active_window()
         if window is not None:
-            view = sublime.active_window().active_view()
+            view = window.active_view()
     if view is not None:
         settings = view.settings()
         if settings.has("sublimedelve_%s" % key):
@@ -28,6 +28,8 @@ def show_input():
     dlv_input_view = sublime.active_window().show_input_panel("Delve", "", input_on_done, input_on_change, input_on_cancel)
 
 def input_on_done(s):
+    if s.strip() != "quit" and s.strip() != "exit" and s.strip() != "q":
+        show_input()
     run_cmd(s)
 
 def input_on_cancel():
@@ -39,7 +41,28 @@ def input_on_change(s):
 def is_running():
     return (dlv_process is not None and dlv_process.poll() is None)
 
+def is_server_running():
+    return (dlv_server_process is not None and dlv_server_process.poll() is None)
+
+def is_gosource(s):
+    if s is None:
+        return False
+    ext = os.path.splitext(os.path.basename(s))[1]
+    if ext is not None  and ext == ".go":
+        return True
+    else:
+        return False
+
+def is_local_mode():
+    return dlv_mode in ["debug", "test"]
+
 def run_cmd(cmd, timeout=10):
+    if not is_running():
+        message = "Delve session not found, need to start debugging"
+        logger.debug(message)
+        sublime.status_message(message)
+        return
+
     if isinstance(cmd, list):
         for c in cmd:
             run_cmd(c, block, mimode, timeout)
@@ -55,33 +78,37 @@ class Logger(object):
         self.enabled = False
         self.started = False
         self.initialized = False
-        self.eventFinished = threading.Event()
-        self.eventNeedStop = threading.Event()
+        self.lock = threading.RLock()
         self.log = logging.getLogger('SublimeDelve')
-        self.log.setLevel(logging.DEBUG)
         self.logging_level_switch = {
                 'debug':    self.log.debug,
                 'info':     self.log.info,
                 'warning':  self.log.warning,
                 'error':    self.log.error,
                 'critical': self.log.critical }
-    def is_started():
+    def is_started(self):
         return self.started
 
     def start(self):
         if not self.initialized:
             self.enabled = get_setting("debug", True)
-            file = get_setting("debug_file", "stdout")
             if self.enabled:
+                logging_level = (logging.INFO if get_setting("debug_level", "debug") == "info" else logging.DEBUG)
+                self.log.setLevel(logging_level)
+                file = get_setting("debug_file", "stdout")
                 if (file != "stdout"):
                     fh = logging.FileHandler(file);
-                    fh.setLevel(logging.DEBUG)
+                    fh.setLevel(logging_level)
                     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
                     fh.setFormatter(formatter)
                     self.log.addHandler(fh)
-                self.started = True
-                self.logging_level_switch["info"]("Start logging")
             self.initialized = True
+        if not self.is_started():
+            self.started = True
+            self.logging_level_switch["info"]("Start logging")
+        else:
+            self.logging_level_switch["debug"]("Logging already started!")
+
 
     def write_log(self, get, logging_level_switch):
 #        while True:
@@ -94,11 +121,10 @@ class Logger(object):
 
     def stop(self):
         if self.enabled and self.started:
-            lock = threading.Lock()
-            lock.acquire()
+            self.lock.acquire()
             self.log_queue.put(None)
             self.started = False
-            lock.release()
+            self.lock.release()
             self.write_log(self.log_queue.get, self.logging_level_switch)
 
     def do_log(self, level, message):
@@ -168,6 +194,10 @@ class DlvView(object):
         self.view = None
         self.closed = True
 
+    def add_line(self, line, now=True):
+        if self.is_open():
+            pass
+
 class DlvSessionView(DlvView):
     def __init__(self):
         super(DlvSessionView, self).__init__("Delve Session")
@@ -194,53 +224,106 @@ class DlvEventListener(sublime_plugin.EventListener):
                 v.was_closed()
                 break
 
-def dlv_session_input(pipe):
-    global dlv_process
-    global logger
+# def dlv_session_input(pipe):
+#     global dlv_process
+#     global logger
 
 def session_ended_status_message():
     sublime.status_message("Delve session closed")
 
-def dlv_session_output(pipe):
+def dlv_output(pipe, cmd_session=None):
+    global dlv_server_process
     global dlv_process
     global logger
+
+    started_session = False
+
     while True:
         try:
             line = pipe.readline()
             if len(line) == 0:
-                logger.error("Broken %s pipe of the Delve session" % ("stdout" if pipe == dlv_process.stdout else "stderr"))
+                if is_local_mode() and dlv_server_process is not None:
+                    if pipe in [dlv_server_process.stdout, dlv_server_process.stderr]:
+                        logger.error("Broken %s pipe of the Delve server" % ("stdout" if pipe == dlv_server_process.stdout else "stderr"))
+                        break
+                if dlv_process.stdout is not None:
+                    logger.error("Broken %s pipe of the Delve session" % ("stdout" if pipe == dlv_process.stdout else "stderr"))
                 break
             else:
                 if line[len(line)-1] == '\n':
                     line = line[:-1]
             if line.startswith("(dlv)"):
-                line = line.replace("(dlv) ", "").lstrip().rstrip()
+                line = line.replace("(dlv)", "").lstrip().rstrip()
                 if len(line) == 0:
                     continue
-            if pipe == dlv_process.stdout:
-                logger.info(line)
-            else:
-                logger.error(line)
+            if dlv_process is not None:
+                if pipe == dlv_process.stdout:
+                    logger.info(line)
+                elif pipe == dlv_process.stderr:
+                    logger.error(line)
+            if dlv_server_process is not None:
+                if pipe == dlv_server_process.stdout:
+                    logger.info(line)
+                    if not started_session:
+                        logger.debug("Delve server is working, try to start Delve Session")
+                        lock = threading.RLock()
+                        lock.acquire()
+                        sublime.set_timeout(lambda: load_session_subprocess(cmd_session), 0)
+                        started_session = True
+                        lock.release()
+                elif pipe == dlv_server_process.stderr:
+                    logger.error(line)
         except:
             traceback.print_exc()
-    if pipe == dlv_process.stdout:
+    if dlv_process is not None and pipe == dlv_process.stdout:
         logger.info("Delve session closed")
         sublime.set_timeout(session_ended_status_message, 0)
-    sublime.set_timeout(cleanup, 0)
+        if is_local_mode():
+            sublime.set_timeout(cleanup_server(), 0)
+    if (not is_local_mode() and dlv_process is not None and pipe == dlv_process.stdout) or \
+                (is_local_mode() and dlv_server_process is not None and pipe == dlv_server_process.stdout):
+        if logger.is_started():
+            logger.stop()
+        sublime.set_timeout(cleanup_session, 0)
 
-def cleanup():
+def cleanup_session():
     global dlv_views
-    global dlv_session_view
-    global logger
     
     for view in dlv_views:
         if view.is_open():
             view.close()
-    logger.stop()
+    logger.debug("Closed debugging views")
+
+def cleanup_server():
+    global dlv_server_process
+    global logger
+    
+    if is_server_running():
+        try:
+            dlv_server_process.terminate()
+            logger.debug("Delve server normal exit")
+        except:
+            traceback.print_exc()
+            dlv_server_process.kill()
+            logger.error("Delve server kill after timeout")
+
+def load_session_subprocess(cmd_session):
+    global dlv_process
+
+    logger.info("Delve session started with command: %s" % " ".join(cmd_session))
+    dlv_process = subprocess.Popen(" ".join(cmd_session), shell=True, universal_newlines=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    t = threading.Thread(target=dlv_output, args=(dlv_process.stdout,))
+    t.start()
+    t = threading.Thread(target=dlv_output, args=(dlv_process.stderr,))
+    t.start()
+    # t = threading.Thread(target=dlv_session_input, args=(dlv_process.stdin,))
+    # t.start()
 
 class DlvStart(sublime_plugin.WindowCommand):
     def run(self):
         global dlv_session_view
+        global dlv_mode
         global dlv_server_process
         global dlv_process
         global logger
@@ -255,12 +338,12 @@ class DlvStart(sublime_plugin.WindowCommand):
         cmd_session = []
         cmd_server.append(value)
         cmd_session.append(value)
-        mode = get_setting("mode", "debug")
-        if mode == "debug" or mode == "test":
-            cmd_server.append(mode)
+        dlv_mode = get_setting("mode", "debug")
+        if is_local_mode():
+            cmd_server.append(dlv_mode)
         cmd_session.append("connect")
         cmd_server.append("--headless")
-        cmd_server.append("--accept-multiclient")
+        # cmd_server.append("--accept-multiclient")
         cmd_server.append("--api-version=2")
         if get_setting("log", "false") == "true":
             cmd_server.append("--log")
@@ -271,18 +354,26 @@ class DlvStart(sublime_plugin.WindowCommand):
         if value != "":
             cmd_server.append("--")
             cmd_server.append(value)
-        value = get_setting("cwd", "")
-        if value != "":
-            cwd = value
-        logger.info("Delve %s session started with command: %s" % (mode, " ".join(cmd_session)))
-        dlv_process = subprocess.Popen(" ".join(cmd_session), shell=True, cwd=cwd, universal_newlines=True,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        t = threading.Thread(target=dlv_session_output, args=(dlv_process.stdout,))
-        t.start()
-        t = threading.Thread(target=dlv_session_output, args=(dlv_process.stderr,))
-        t.start()
-        t = threading.Thread(target=dlv_session_input, args=(dlv_process.stdin,))
-        t.start()
+        if is_local_mode():
+            value = get_setting("cwd", "")
+            if value != "":
+                cwd = value
+            else:
+                window = sublime.active_window()
+                if window is not None:
+                    view = window.active_view()
+                    if view is not None:
+                        cwd = os.path.dirname(view.file_name())
+            logger.info("Delve server started with command: %s" % " ".join(cmd_server))
+            logger.debug("In directory: %s" % cwd)            
+            dlv_server_process = subprocess.Popen(cmd_server, shell=False, cwd=cwd, universal_newlines=True,
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            t = threading.Thread(target=dlv_output, args=(dlv_server_process.stdout, cmd_session))
+            t.start()
+            t = threading.Thread(target=dlv_output, args=(dlv_server_process.stderr,))
+            t.start()
+        else:
+            load_session_subprocess(cmd_session)
         show_input()
         sublime.status_message("Delve session started")
 
@@ -298,7 +389,7 @@ class DlvStop(sublime_plugin.WindowCommand):
         global dlv_process
         global logger
 
-        if dlv_process is not None and dlv_process.poll() is None:
+        if is_running():
             try:
                 run_cmd('exit')
                 logger.debug("Normal exit")
@@ -306,16 +397,10 @@ class DlvStop(sublime_plugin.WindowCommand):
                 traceback.print_exc()
                 dlv_process.kill()
                 logger.error("Kill after timeout")
-        if dlv_server_process is not None and dlv_server_process.poll() is None:
-            try:
-                dlv_server_process.terminate()
-                logger.debug("Delve server normal exit")
-            except:
-                traceback.print_exc()
-                dlv_server_process.kill()
-                logger.error("Delve server kill after timeout")
 
-        cleanup()
+        cleanup_session()
+        if is_local_mode():
+            cleanup_server()
 
     def is_enabled(self):
         return is_running()
