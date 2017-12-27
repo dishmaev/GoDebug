@@ -2,12 +2,23 @@
     "id": "dlv_menu",
     "caption": "Delve",
     "children": [
+        { "command": "dlv_test", "caption": "My test"},
+        { "caption": "-", "id": "breakpoints" },
+        { "command": "dlv_toggle_breakpoint", "caption": "Toggle Breakpoint" },
         { "command": "dlv_start", "caption": "Start debugging"},
         { "command": "dlv_stop", "caption": "Stop"},
         { "caption": "-", "id": "dlv_views" },
         {
+            "caption": "Open Breakpoint View",
+            "command": "dlv_open_breakpoint_view"
+        },
+        {
             "caption": "Open Session View",
             "command": "dlv_open_session_view"
+        },
+        {
+            "caption": "Open Console View",
+            "command": "dlv_open_console_view"
         },
     ]
 }]

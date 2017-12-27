@@ -8,5 +8,23 @@
         "command": "dlv_stop",
         "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
         "keys": ["ctrl+f6"]
+    },
+    {
+        "command": "dlv_input",
+        "keys": ["shift+f5"]
+    },
+    {
+        "command": "dlv_toggle_breakpoint",
+        "keys": ["ctrl+f9"]
+    },
+    {
+        "command": "dlv_prev_cmd",
+        "context": [{"key": "dlv_input_view"}],
+        "keys": ["up"]
+    },
+    {
+        "command": "dlv_next_cmd",
+        "context": [{"key": "dlv_input_view"}],
+        "keys": ["down"]
     }
 ]

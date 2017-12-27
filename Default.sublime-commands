@@ -29,4 +29,12 @@
         "caption": "SublimeDelve: Open Session View",
         "command": "dlv_open_session_view"
     },
+    {
+        "caption": "SublimeDelve: Open Console View",
+        "command": "dlv_open_console_view"
+    },
+    {
+        "caption": "SublimeDelve: Open Breakpoint View",
+        "command": "dlv_open_breakpoint_view"
+    }
 ]

@@ -18,6 +18,11 @@
     // The current working directory where delve starts from. Used for "local" or "test" mode. (OPTIONAL)
     "cwd": "",
 
+    // For the larger binaries with lot of shared libraries
+    // the loading within the Delve could take much longer.
+    // Configure the thread wait timeout by setting timeout
+    "timeout": 10,
+
     // File to optionally write all the raw data read from and written to the Delve session and the inferior program.
     // Setting it to "stdout" will write the output to the python console
     "debug_file": "stdout",
@@ -28,4 +33,13 @@
 
     // Whether to log the raw data read from and written to the Delve session and the inferior program.
     "debug": true,
+
+    "session_group": 1,
+    "session_open": true,
+
+    "console_group": 1,
+    "console_open": true,
+
+    "breakpoints_group": 3,
+    "breakpoints_open": true,
 }
