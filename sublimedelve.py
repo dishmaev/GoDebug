@@ -3,13 +3,16 @@ import sublime_plugin
 import subprocess
 import threading
 import traceback
-import logging
-import queue
 import os
 import json
 import socket 
 import sys 
 import re
+
+from SublimeDelve.sdconst import dlv_const
+from SublimeDelve.sdlogger import dlv_logger
+
+from SublimeDelve.sdview import DlvView
 
 dlv_panel_layout = {}
 dlv_panel_window = None
@@ -19,7 +22,6 @@ dlv_input_view = None
 dlv_command_history = []
 dlv_command_history_pos = 0
 
-dlv_mode = None
 dlv_server_process = None
 dlv_process = None
 
@@ -27,17 +29,6 @@ def normalize(filename):
     if filename is None:
         return None
     return os.path.abspath(os.path.normcase(filename))
-
-def get_setting(key, default=None, view=None):
-    if view is None:
-        window = sublime.active_window()
-        if window is not None:
-            view = window.active_view()
-    if view is not None:
-        settings = view.settings()
-        if settings.has("sublimedelve_%s" % key):
-            return settings.get("sublimedelve_%s" % key)
-    return sublime.load_settings("SublimeDelve.sublime-settings").get(key, default)
 
 def set_input(edit, text):
     dlv_input_view.erase(edit, sublime.Region(0, dlv_input_view.size()))
@@ -95,18 +86,16 @@ def is_gosource(s):
         return False
 
 def is_local_mode():
-    global dlv_mode
-    if dlv_mode is None:
-        try:
-            dlv_mode = get_setting("mode", "debug")
-        except:
-            traceback.print_exc()
-    return dlv_mode in ["debug", "test"]
+    global dlv_const
+
+    return dlv_const.MODE in ["debug", "test"]
 
 def run_cmd(cmd, timeout=10):
+    global dlv_logger
+
     if not is_running():
         message = "Delve session not found, need to start debugging"
-        logger.debug(message)
+        dlv_logger.debug(message)
         sublime.status_message(message)
         return
 
@@ -114,166 +103,12 @@ def run_cmd(cmd, timeout=10):
         for c in cmd:
             run_cmd(c, timeout)
         return
-    message = "Run command: %s" % cmd
+    message = "Input command: %s" % cmd
     dlv_session_view.add_line(message)
-    logger.info(message)
+    dlv_logger.info(message)
     dlv_process.stdin.write(cmd + "\n")
     dlv_process.stdin.flush()
     return
-
-class Logger(object):
-    def __init__(self):
-        self.log_queue = queue.Queue()
-        self.enabled = False
-        self.started = False
-        self.initialized = False
-        self.lock = threading.RLock()
-        self.log = logging.getLogger('SublimeDelve')
-        self.logging_level_switch = {
-                'debug':    self.log.debug,
-                'info':     self.log.info,
-                'warning':  self.log.warning,
-                'error':    self.log.error,
-                'critical': self.log.critical }
-    def is_started(self):
-        return self.started
-
-    def start(self):
-        if not self.initialized:
-            self.enabled = get_setting("debug", True)
-            if self.enabled:
-                logging_level = (logging.INFO if get_setting("debug_level", "debug") == "info" else logging.DEBUG)
-                self.log.setLevel(logging_level)
-                file = get_setting("debug_file", "stdout")
-                if (file != "stdout"):
-                    fh = logging.FileHandler(file);
-                    fh.setLevel(logging_level)
-                    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-                    fh.setFormatter(formatter)
-                    self.log.addHandler(fh)
-            self.initialized = True
-        if not self.is_started():
-            self.started = True
-            self.logging_level_switch["info"]("Start logging")
-        else:
-            self.logging_level_switch["debug"]("Logging already started!")
-
-    def write_log(self, get, logging_level_switch):
-        item = get()
-        if item is None:
-            logging_level_switch["info"]("Stop logging")
-            return
-        logging_level_switch[item["level"]](item["message"])
-
-    def stop(self):
-        if self.enabled and self.started:
-            self.lock.acquire()
-            self.log_queue.put(None)
-            self.started = False
-            self.lock.release()
-            self.write_log(self.log_queue.get, self.logging_level_switch)
-
-    def do_log(self, level, message):
-        if self.enabled:
-            self.log_queue.put({"level":"%s" % level, "message":"%s" % message})
-            self.write_log(self.log_queue.get, self.logging_level_switch)
-
-    def debug(self, message):
-        if self.enabled:
-            self.do_log("debug", message)
-
-    def info(self, message):
-        if self.enabled:
-            self.do_log("info", message)
-
-    def warning(self, message):
-        if self.enabled:
-            self.do_log("warning", message)
-
-    def error(self, message):
-        if self.enabled:
-            self.do_log("error", message)
-
-    def critical(self, message):
-        if self.enabled:
-            self.do_log("critical", message)
-
-logger = Logger()
-
-class DlvView(object):
-    def __init__(self, name, scroll=True, group=None):
-        self.group = group
-        self.name = name
-        self.scroll = scroll
-        self.view = None
-        self.counter = 0
-
-    def open(self):
-        if self.view is None or self.view.window() is None:
-            if self.group is not None:
-                sublime.active_window().focus_group(get_setting("%s_group" % self.group, 0))
-            self.create_view()
-
-    def close(self):
-        if self.view is not None:
-            if self.group is not None:
-                sublime.active_window().focus_group(get_setting("%s_group" % self.group, 0))
-            self.destroy_view()
-
-    def clear(self):
-        if self.view is not None:
-            self.view.run_command("dlv_view_clear")
-            self.counter = 0
-
-    def create_view(self):
-        self.view = sublime.active_window().new_file()
-        self.view.set_name(self.name)
-        self.view.set_scratch(True)
-        self.view.set_read_only(True)
-        self.view.settings().set('command_mode', False)
-
-    def open_at_start(self):
-        if self.group is not None:
-            return get_setting("%s_open" % self.group, False)
-        return False
-
-    def is_open(self):
-        return self.view is not None
-
-    def is_closed(self):
-        return self.view is None
-
-    def get_view(self):
-        return self.view
-
-    def was_closed(self):
-        self.view = None
-
-    def destroy_view(self):
-        sublime.active_window().focus_view(self.view)
-        sublime.active_window().run_command("close")
-        self.view = None
-        self.counter = 0
-
-    def add_line(self, line):
-        if self.view is not None:
-            self.counter += 1
-            full_line = str(self.counter) + " - " + line + "\n"
-            self.view.run_command("dlv_view_add_line", {"line": full_line, "scroll": self.scroll })
-
-class DlvViewClear(sublime_plugin.TextCommand):
-    def run(self, edit):
-        self.view.set_read_only(False)
-        self.view.erase(edit, sublime.Region(0, self.view.size()))
-        self.view.set_read_only(True)
-
-class DlvViewAddLine(sublime_plugin.TextCommand):
-    def run(self, edit, line, scroll):
-        self.view.set_read_only(False)
-        self.view.insert(edit, self.view.size(), line)
-        self.view.set_read_only(True)
-        if scroll:
-            self.view.show(self.view.size())
 
 class DlvBreakpoint(object):
     def __init__(self, filename, line, name):
@@ -291,19 +126,25 @@ class DlvBreakpoint(object):
         return normalize(self.original_filename)
 
     def add(self):
+        global dlv_logger
+
         if is_running():
-            logger.debug("TO-DO send json-rpc for add breakpoint")
+            dlv_logger.debug("TO-DO send json-rpc for add breakpoint")
 
     def remove(self):
+        global dlv_logger
+
         if is_running():
-            logger.debug("TO-DO send json-rpc for remove breakpoint")
+            dlv_logger.debug("TO-DO send json-rpc for remove breakpoint")
 
     def format(self):
         return "%s %s:%d" % (self.name, self.filename, self.line)
 
 class DlvBreakpointView(DlvView):
     def __init__(self):
-        super(DlvBreakpointView, self).__init__("Delve Breakpoints", scroll=False, group="breakpoints")
+        global dlv_const
+
+        super(DlvBreakpointView, self).__init__(dlv_const.BREAKPOINTS_VIEW, "Delve Breakpoints", scroll=False)
         self.breakpoints = []
         self.number = 0
 
@@ -359,8 +200,16 @@ class DlvBreakpointView(DlvView):
         for bkpt in self.breakpoints:
             bkpt.add()
 
-dlv_session_view = DlvView("Delve Session", group="session")
-dlv_console_view = DlvView("Delve Console", group="console")
+# class DlvBreakpointView(DlvView):
+#     def __init__(self):
+#         global dlv_const
+
+#         super(DlvBreakpointView, self).__init__(dlv_const.BREAKPOINTS_VIEW, "Delve Breakpoints", scroll=False)
+#         self.group = lambda: dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.PANEL_GROUP)
+#         self.open_at_start = lambda: dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.OPEN_AT_START)
+
+dlv_session_view = DlvView(dlv_const.SESSION_VIEW, "Delve Session")
+dlv_console_view = DlvView(dlv_const.CONSOLE_VIEW, "Delve Console")
 dlv_bkpt_view = DlvBreakpointView()
 dlv_views = [dlv_session_view, dlv_bkpt_view]
 
@@ -425,7 +274,7 @@ def session_ended_status_message():
 def dlv_output(pipe, cmd_session=None):
     global dlv_server_process
     global dlv_process
-    global logger
+    global dlv_logger
 
     started_session = False
     # reaesc = re.compile(r'\x1b[^m]*m')
@@ -441,11 +290,11 @@ def dlv_output(pipe, cmd_session=None):
             if len(line) == 0:
                 if is_local_mode() and dlv_server_process is not None:
                     if pipe in [dlv_server_process.stdout, dlv_server_process.stderr]:
-                        logger.error("Broken %s pipe of the Delve server" % \
+                        dlv_logger.error("Broken %s pipe of the Delve server" % \
                             ("stdout" if pipe == dlv_server_process.stdout else "stderr"))
                         break
                 if dlv_process.stdout is not None:
-                    logger.error("Broken %s pipe of the Delve session" % \
+                    dlv_logger.error("Broken %s pipe of the Delve session" % \
                         ("stdout" if pipe == dlv_process.stdout else "stderr"))
                 break
             else:
@@ -460,16 +309,16 @@ def dlv_output(pipe, cmd_session=None):
             if dlv_process is not None:
                 if pipe == dlv_process.stdout:
                     dlv_session_view.add_line(line)
-                    logger.info("Session stdout: " + line)
+                    dlv_logger.info("Session stdout: " + line)
                 elif pipe == dlv_process.stderr:
                     dlv_session_view.add_line(line)
-                    logger.error("Session stderr: " + line)
+                    dlv_logger.error("Session stderr: " + line)
             if dlv_server_process is not None:
                 if pipe == dlv_server_process.stdout:
                     dlv_console_view.add_line(line)
-                    logger.info("Server stdout: " + line)
+                    dlv_logger.info("Server stdout: " + line)
                     if not started_session:
-                        logger.debug("Delve server is working, try to start Delve Session")
+                        dlv_logger.debug("Delve server is working, try to start Delve Session")
                         lock = threading.RLock()
                         lock.acquire()
                         sublime.set_timeout(lambda: load_session_subprocess(cmd_session), 0)
@@ -477,23 +326,24 @@ def dlv_output(pipe, cmd_session=None):
                         lock.release()
                 elif pipe == dlv_server_process.stderr:
                     dlv_console_view.add_line(line)
-                    logger.error("Server stderr: " + line)
+                    dlv_logger.error("Server stderr: " + line)
         except:
             traceback.print_exc()
     if dlv_process is not None and pipe == dlv_process.stdout:
-        logger.info("Delve session closed")
+        dlv_logger.info("Delve session closed")
         sublime.set_timeout(session_ended_status_message, 0)
         if is_local_mode():
             sublime.set_timeout(cleanup_server, 0)
     if dlv_server_process is not None and pipe == dlv_server_process.stdout:
-        logger.info("Delve server closed")
+        dlv_logger.info("Delve server closed")
     if (not is_local_mode() and dlv_process is not None and pipe == dlv_process.stdout) or \
                 (is_local_mode() and dlv_server_process is not None and pipe == dlv_server_process.stdout):
-        if logger.is_started():
-            sublime.set_timeout(lambda: logger.stop(), 0)
+        if dlv_logger.is_started():
+            sublime.set_timeout(lambda: dlv_logger.stop(), 0)
         sublime.set_timeout(cleanup_session, 0)
 
 def cleanup_session():
+    global dlv_logger
     global dlv_views
     
     for view in dlv_views:
@@ -503,11 +353,11 @@ def cleanup_session():
         dlv_console_view.close()
     dlv_panel_window.set_layout(dlv_panel_layout)
     dlv_panel_window.focus_view(dlv_panel_view)
-    logger.debug("Closed debugging views")
+    dlv_logger.debug("Closed debugging views")
 
 def cleanup_server():
+    global dlv_logger
     global dlv_server_process
-    global logger
     
     if is_server_running():
         try:
@@ -515,15 +365,16 @@ def cleanup_server():
         except:
             traceback.print_exc()
             dlv_server_process.kill()
-            logger.error("Delve server killed after timeout")
+            dlv_logger.error("Delve server killed after timeout")
     if dlv_console_view.is_open():
         dlv_console_view.close()
 
 def load_session_subprocess(cmd_session):
+    global dlv_logger
     global dlv_process
 
     message = "Delve session started with command: %s" % " ".join(cmd_session)
-    logger.info(message)
+    dlv_logger.info(message)
     dlv_session_view.add_line(message)
     dlv_process = subprocess.Popen(" ".join(cmd_session), shell=True, universal_newlines=True,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -534,38 +385,61 @@ def load_session_subprocess(cmd_session):
 
 class DlvStart(sublime_plugin.WindowCommand):
     def create_cmd(self):
-        global dlv_mode
+        global dlv_const
+
         value = "dlv"
         cmd_server = []
         cmd_session = []
         cmd_server.append(value)
         cmd_session.append(value)
         if is_local_mode():
-            cmd_server.append(dlv_mode)
+            cmd_server.append(dlv_const.MODE)
         cmd_session.append("connect")
         cmd_server.append("--headless")
         cmd_server.append("--accept-multiclient")
         cmd_server.append("--api-version=2")
-        if get_setting("log", "false") == "true":
+        if dlv_const.LOG:
             cmd_server.append("--log")
-        value = get_setting("host", "localhost") + ":" + get_setting("port", "3456")
+        value = dlv_const.HOST + ":" + dlv_const.PORT
         cmd_server.append("--listen=%s" % value)
         cmd_session.append(value)
-        value = get_setting("args", "")
-        if value != "":
+        if dlv_const.ARGS != "":
             cmd_server.append("--")
-            cmd_server.append(value)
+            cmd_server.append(dlv_const.ARGS)
         return (cmd_session, cmd_server)
 
     def run(self):
+        global dlv_const
+        exec_choices = dlv_const.get_project_executables()
+        if exec_choices is None:
+            dlv_const.clear_project_executable()
+            self.launch()
+            return
+
+        def on_choose(index):
+            if index == -1:
+                # User cancelled the panel, abort launch
+                return
+            exec_name = list(exec_choices)[index]
+            dlv_const.set_project_executable(exec_name)
+            self.launch()
+
+        self.window.show_quick_panel(list(exec_choices), on_choose)
+
+    def launch(self):
+        global dlv_const
         global dlv_session_view
         global dlv_server_process
         global dlv_process
-        global logger
+        global dlv_logger
         global dlv_panel_window
 
-        logger.start()
-        cmd_session, cmd_server = self.create_cmd()        
+        dlv_logger.start(dlv_const.DEBUG, dlv_const.DEBUG_FILE)
+
+        if dlv_const.is_project_executable():
+            dlv_logger.debug("Using project executable settings: %s" % dlv_const.get_project_executable_name())
+
+        active_view = None
         window = sublime.active_window()
         if window is not None:
             active_view = window.active_view()
@@ -573,36 +447,29 @@ class DlvStart(sublime_plugin.WindowCommand):
         dlv_panel_window = sublime.active_window()
         dlv_panel_layout = dlv_panel_window.get_layout()
         dlv_panel_view = dlv_panel_window.active_view()
-        dlv_panel_window.set_layout(
-            {
-                "cols": [0.0, 0.33, 0.66, 1.0],
-                "rows": [0.0, 0.75, 1.0],
-                "cells":
-                [
-                    [0, 0, 3, 1],
-                    [0, 1, 1, 2],
-                    [1, 1, 2, 2],
-                    [2, 1, 3, 2] 
-                ]
-            }
-        )
+        dlv_panel_window.set_layout(dlv_const.PANEL_LAYOUT)
+
         for v in dlv_views:
             if v.is_closed():
-                if v.open_at_start():
+                if v.is_open_at_start():
                     v.open()
             else:
-                v.clear()
+                if v.is_open_at_start():
+                    v.clear()
+                else:
+                    v.close()
+
+        cmd_session, cmd_server = self.create_cmd()        
         if is_local_mode():
             if dlv_console_view.is_closed():
-                if dlv_console_view.open_at_start():
+                if dlv_console_view.is_open_at_start():
                     dlv_console_view.open()
             else:
-                dlv_console_view.clear()
-
-        if is_local_mode():
-            if dlv_console_view.is_closed():
-                dlv_console_view.open()
-            value = get_setting("cwd", "")
+                if dlv_console_view.is_open_at_start():
+                    dlv_console_view.clear()
+                else:
+                    dlv_console_view.close()
+            value = dlv_const.CWD
             cwd = None
             if value != "":
                 cwd = value
@@ -612,8 +479,8 @@ class DlvStart(sublime_plugin.WindowCommand):
                     if file_name is not None:
                         cwd = os.path.dirname(file_name)
             message = "Delve server started with command: %s" % " ".join(cmd_server)
-            logger.info(message)
-            logger.debug("In directory: %s" % cwd)            
+            dlv_logger.info(message)
+            dlv_logger.debug("In directory: %s" % cwd)            
             dlv_console_view.add_line(message)
             dlv_server_process = subprocess.Popen(cmd_server, shell=False, cwd=cwd, universal_newlines=True,
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -635,17 +502,15 @@ class DlvStop(sublime_plugin.WindowCommand):
     def run(self):
         global dlv_server_process
         global dlv_process
-        global logger
+        global dlv_logger
 
         if is_running():
             try:
                 run_cmd('exit')
-                # if is_local_mode():
-                #     cleanup_server()
             except:
                 traceback.print_exc()
                 dlv_process.kill()
-                logger.error("Delve session killed after timeout")
+                dlv_logger.error("Delve session killed after timeout")
                 cleanup_session()
                 if is_local_mode():
                     cleanup_server()
@@ -696,15 +561,29 @@ class DlvOpenBreakpointView(sublime_plugin.WindowCommand):
 
 class DlvTest(sublime_plugin.WindowCommand):
     def run(self):
-        callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
-        message = json.dumps(callmethod)
-        message_bytes = message.encode('utf-8')
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(get_setting("timeout", "10"))
-        sock.connect(('localhost', 3456))
-        sock.send(message_bytes)
-        while True:
-            data = sock.recv(1024)
-            if not data or len(data) < 1024: break
-            logger.debug(data.strip().decode(sys.getdefaultencoding()))
-        sock.close()
+        global dlv_const
+        global dlv_logger
+
+        print(dlv_const.get_view_setting(dlv_const.SESSION_VIEW, dlv_const.PANEL_GROUP))
+        print(dlv_const.get_view_setting(dlv_const.SESSION_VIEW, dlv_const.OPEN_AT_START))
+        print(dlv_const.get_view_setting(dlv_const.CONSOLE_VIEW, dlv_const.PANEL_GROUP))
+        print(dlv_const.get_view_setting(dlv_const.CONSOLE_VIEW, dlv_const.OPEN_AT_START))
+        print(dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.PANEL_GROUP))
+        print(dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.OPEN_AT_START))
+
+        # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
+        # message = json.dumps(callmethod)
+        # message_bytes = message.encode('utf-8')
+        # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # sock.settimeout(dlv_const.TIMEOUT)
+        # sock.connect(dlv_const.HOST, dlv_const.PORT)
+        # sock.send(message_bytes)
+        # while True:
+        #     try:
+        #         data = sock.recv(1024)
+        #     except:
+        #         traceback.print_exc()
+        #         break
+        #     if not data or len(data) < 1024: break
+        #     dlv_logger.debug(data.strip().decode(sys.getdefaultencoding()))
+        # sock.close()
