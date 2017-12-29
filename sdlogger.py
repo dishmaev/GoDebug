@@ -2,14 +2,17 @@ import queue
 import threading
 import logging
 
+from SublimeDelve.sdconst import dlv_const
+
 class DlvLogger(object):
     def __init__(self):
+        self.__fh = None
+        self.__file = "" # log file name, not "stdout"
         self.__log_queue = queue.Queue()
-        self.__enabled = False
         self.__started = False
-        self.__initialized = False
         self.__lock = threading.RLock()
         self.__log = logging.getLogger('SublimeDelve')
+        self.__log.setLevel(logging.DEBUG)
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,
@@ -21,23 +24,24 @@ class DlvLogger(object):
     def is_started(self):
         return self.__started
 
-    def start(self, enabled, file):
-        if enabled:
-            self.__enabled = enabled
-            if not self.__initialized:
-                self.__log.setLevel(logging.DEBUG)
-                if file != "stdout":
-                    fh = logging.FileHandler(file);
-                    fh.setLevel(logging.DEBUG)
-                    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-                    fh.setFormatter(formatter)
-                    self.__log.addHandler(fh)
-                self.__initialized = True
-            if not self.__started:
-                self.__logging_level_switch["info"]("Start logging")
-                self.__started = True
-            else:
+    def start(self, file):
+        if self.__started:
+            if self.__file == file:
                 self.__logging_level_switch["debug"]("Logging already started!")
+                return
+            else:
+                self.stop()
+
+        if file != dlv_const.STDOUT:
+            self.__file = file
+            self.__fh = logging.FileHandler(file);
+            self.__fh.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            self.__fh.setFormatter(formatter)
+            self.__log.addHandler(self.__fh)
+
+        self.__logging_level_switch["info"]("Start logging to file: %s" % (dlv_const.STDOUT if self.__file == "" else self.__file))
+        self.__started = True
 
     def __write_log(self, get, logging_level_switch):
         item = get()
@@ -47,37 +51,38 @@ class DlvLogger(object):
         logging_level_switch[item["level"]](item["message"])
 
     def stop(self):
-        if self.__enabled and self.__started:
+        if not self.__started:
+            self.__logging_level_switch["debug"]("Logging already stopped!")
+            return
+
+        if self.__started:
             self.__lock.acquire()
             self.__log_queue.put(None)
-            self.__started = False
             self.__lock.release()
             self.__write_log(self.__log_queue.get, self.__logging_level_switch)
-
+            if self.__fh is not None:
+                self.__log.removeHandler(self.__fh)
+                self.__file = ""
+                self.__fh = None
+            self.__started = False
 
     def __do_log(self, level, message):
-        if self.__enabled:
-            self.__log_queue.put({"level":"%s" % level, "message":"%s" % message})
-            self.__write_log(self.__log_queue.get, self.__logging_level_switch)
+        self.__log_queue.put({"level":"%s" % level, "message":"%s" % message})
+        self.__write_log(self.__log_queue.get, self.__logging_level_switch)
 
     def debug(self, message):
-        if self.__enabled:
-            self.__do_log("debug", message)
+        self.__do_log("debug", message)
 
     def info(self, message):
-        if self.__enabled:
-            self.__do_log("info", message)
+        self.__do_log("info", message)
 
     def warning(self, message):
-        if self.__enabled:
-            self.__do_log("warning", message)
+        self.__do_log("warning", message)
 
     def error(self, message):
-        if self.__enabled:
-            self.__do_log("error", message)
+        self.__do_log("error", message)
 
     def critical(self, message):
-        if self.__enabled:
-            self.__do_log("critical", message)
+        self.__do_log("critical", message)
 
 dlv_logger = DlvLogger()

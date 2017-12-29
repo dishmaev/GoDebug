@@ -88,20 +88,44 @@ class DlvConst(object):
     def OPEN_AT_START(self):
         return self.__open_at_start_suffix
 
+    @property
+    def STDOUT(self):
+        return 'stdout'
+
+    @property
+    def DEFAULT_HOST(self):
+        return 'localhost'
+
+    @property
+    def DEFAULT_PORT(self):
+        return '3456'
+
+    @property
+    def MODE_DEBUG(self):
+        return 'debug'
+
+    @property
+    def MODE_TEST(self):
+        return 'debug'
+
+    @property
+    def MODE_REMOTE(self):
+        return 'debug'
+
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
     @property
     def MODE(self):
-        return self.__get_settings('mode', 'debug') # "debug" | "test" | "remove"
+        return self.__get_settings('mode', self.MODE_DEBUG) # "debug" | "test" | "remote"
 
     # The host of the Delve server
     @property
     def HOST(self):
-        return self.__get_settings('host', 'localhost')
+        return self.__get_settings('host', self.DEFAULT_HOST)
 
     # The port of the Delve server
     @property
     def PORT(self):
-        return self.__get_settings('port','3456')
+        return self.__get_settings('port', self.DEFAULT_PORT)
 
     # If set, Delve server run in logging mode. Used for "local" or "test" mode
     @property
@@ -123,15 +147,10 @@ class DlvConst(object):
     def TIMEOUT(self):
         return self.__get_settings('timeout', 10) # in seconds
 
-    # Whether to log the raw data read from and written to the Delve session and the inferior program
-    @property
-    def DEBUG(self):
-        return self.__get_settings('debug', True)
-
     # File to optionally write all the raw data read from and written to the Delve session and the inferior program
     @property
     def DEBUG_FILE(self):
-        return self.__get_settings('debug_file', 'stdout') # 'stdout' or file name with full path
+        return self.__get_settings('debug_file', self.STDOUT) # 'stdout' or file name with full path
 
     # Defalt Delve panel layout
     @property

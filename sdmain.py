@@ -89,7 +89,7 @@ def is_gosource(s):
 def is_local_mode():
     global dlv_const
 
-    return dlv_const.MODE in ["debug", "test"]
+    return dlv_const.MODE in [dlv_const.MODE_DEBUG, dlv_const.MODE_TEST]
 
 def run_cmd(cmd, timeout=10):
     global dlv_logger
@@ -200,14 +200,6 @@ class DlvBreakpointView(DlvView):
     def sync_breakpoints(self):
         for bkpt in self.breakpoints:
             bkpt.add()
-
-# class DlvBreakpointView(DlvView):
-#     def __init__(self):
-#         global dlv_const
-
-#         super(DlvBreakpointView, self).__init__(dlv_const.BREAKPOINTS_VIEW, "Delve Breakpoints", scroll=False)
-#         self.group = lambda: dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.PANEL_GROUP)
-#         self.open_at_start = lambda: dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.OPEN_AT_START)
 
 dlv_session_view = DlvView(dlv_const.SESSION_VIEW, "Delve Session")
 dlv_console_view = DlvView(dlv_const.CONSOLE_VIEW, "Delve Console")
@@ -355,10 +347,10 @@ def cleanup_session():
     dlv_panel_window.set_layout(dlv_panel_layout)
     dlv_panel_window.focus_view(dlv_panel_view)
     dlv_logger.debug("Closed debugging views")
-    dlv_logger.stop()
     if dlv_const.is_project_executable():
         dlv_const.clear_project_executable()
         dlv_logger.debug("Cleared project executable settings")
+    dlv_logger.stop()
 
 def cleanup_server():
     global dlv_logger
@@ -438,7 +430,6 @@ class DlvStart(sublime_plugin.WindowCommand):
                 return
             exec_name = list(exec_choices)[index]
             dlv_const.set_project_executable(exec_name)
-            dlv_logger.debug("Set project executable settings: %s" % dlv_const.get_project_executable_name())
             self.launch()
 
         self.window.show_quick_panel(list(exec_choices), on_choose)
@@ -451,7 +442,9 @@ class DlvStart(sublime_plugin.WindowCommand):
         global dlv_logger
         global dlv_panel_window
 
-        dlv_logger.start(dlv_const.DEBUG, dlv_const.DEBUG_FILE)
+        dlv_logger.start(dlv_const.DEBUG_FILE)
+        if dlv_const.is_project_executable():
+            dlv_logger.debug("Set project executable settings: %s" % dlv_const.get_project_executable_name())
 
         active_view = None
         window = sublime.active_window()
@@ -590,13 +583,6 @@ class DlvTest(sublime_plugin.WindowCommand):
     def run(self):
         global dlv_const
         global dlv_logger
-
-        print(dlv_const.get_view_setting(dlv_const.SESSION_VIEW, dlv_const.PANEL_GROUP))
-        print(dlv_const.get_view_setting(dlv_const.SESSION_VIEW, dlv_const.OPEN_AT_START))
-        print(dlv_const.get_view_setting(dlv_const.CONSOLE_VIEW, dlv_const.PANEL_GROUP))
-        print(dlv_const.get_view_setting(dlv_const.CONSOLE_VIEW, dlv_const.OPEN_AT_START))
-        print(dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.PANEL_GROUP))
-        print(dlv_const.get_view_setting(dlv_const.BREAKPOINTS_VIEW, dlv_const.OPEN_AT_START))
 
         # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
         # message = json.dumps(callmethod)

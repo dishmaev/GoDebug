@@ -27,9 +27,6 @@
     // // Setting it to "stdout" will write the output to the python console
     // "debug_file": "stdout",
 
-    // // Whether to log the raw data read from and written to the Delve session and the inferior program.
-    // "debug": false,
-
     // // Defalt Delve panel layout
     // "panel_layout":
     // {
