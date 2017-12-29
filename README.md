@@ -1,6 +1,6 @@
 # SublimeDelve
 
-Delve plugin for Sublime Text 3.
+[Delve](https://github.com/derekparker/delve) plugin for Sublime Text 3.
 
 Based on ideas and sources:
 * [SublimeGDB](https://github.com/quarnster/SublimeGDB)
