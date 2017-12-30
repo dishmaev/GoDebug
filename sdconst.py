@@ -98,7 +98,7 @@ class DlvConst(object):
 
     @property
     def DEFAULT_PORT(self):
-        return '3456'
+        return 3456
 
     @property
     def MODE_DEBUG(self):
@@ -106,11 +106,11 @@ class DlvConst(object):
 
     @property
     def MODE_TEST(self):
-        return 'debug'
+        return 'test'
 
     @property
     def MODE_REMOTE(self):
-        return 'debug'
+        return 'remote'
 
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
     @property
@@ -146,6 +146,16 @@ class DlvConst(object):
     @property
     def TIMEOUT(self):
         return self.__get_settings('timeout', 10) # in seconds
+
+    # Buffer size
+    @property
+    def BUFFER(self):
+        return self.__get_settings('buffer', 4096) # in bytes
+
+    # Whether to log the raw data read from and written to the Delve session and the inferior program.
+    @property
+    def DEBUG(self):
+        return self.__get_settings('log', False)
 
     # File to optionally write all the raw data read from and written to the Delve session and the inferior program
     @property

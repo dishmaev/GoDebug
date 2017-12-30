@@ -11,6 +11,7 @@ import re
 
 from SublimeDelve.sdconst import dlv_const
 from SublimeDelve.sdlogger import dlv_logger
+from SublimeDelve.jsonrpctcp_client import dlv_connect
 
 from SublimeDelve.sdview import DlvView
 
@@ -91,7 +92,7 @@ def is_local_mode():
 
     return dlv_const.MODE in [dlv_const.MODE_DEBUG, dlv_const.MODE_TEST]
 
-def run_cmd(cmd, timeout=10):
+def run_cmd(cmd, timeout=dlv_const.TIMEOUT):
     global dlv_logger
 
     if not is_running():
@@ -273,7 +274,7 @@ def dlv_output(pipe, cmd_session=None):
     if dlv_process is not None and pipe == dlv_process.stdout:
         sublime.set_timeout(sync_breakpoints, 0)
         sublime.set_timeout(show_input, 0)
-        dlv_logger.debug("Ready input field")
+        dlv_logger.debug("Input field is ready")
         sublime.set_timeout(lambda: set_status_message("Delve session started"), 0)
 
     while True:
@@ -285,7 +286,7 @@ def dlv_output(pipe, cmd_session=None):
                         dlv_logger.error("Broken %s pipe of the Delve server" % \
                             ("stdout" if pipe == dlv_server_process.stdout else "stderr"))
                         break
-                if dlv_process.stdout is not None:
+                if dlv_process is not None and dlv_process.stdout is not None:
                     dlv_logger.error("Broken %s pipe of the Delve session" % \
                         ("stdout" if pipe == dlv_process.stdout else "stderr"))
                 break
@@ -320,8 +321,8 @@ def dlv_output(pipe, cmd_session=None):
                     dlv_console_view.add_line(line)
                     dlv_logger.error("Server stderr: " + line)
         except:
-            traceback.print_exc()
-            dlv_logger.error("Exception thrown, details in Sublime console")
+            traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+            dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
 
     if dlv_process is not None and pipe == dlv_process.stdout:
         message = "Delve session closed"
@@ -331,9 +332,18 @@ def dlv_output(pipe, cmd_session=None):
             sublime.set_timeout(cleanup_server, 0)
     if dlv_server_process is not None and pipe == dlv_server_process.stdout:
         dlv_logger.info("Delve server closed")
+        sublime.set_timeout(terminate_session, 0)
     if (not is_local_mode() and dlv_process is not None and pipe == dlv_process.stdout) or \
                 (is_local_mode() and dlv_server_process is not None and pipe == dlv_server_process.stdout):
         sublime.set_timeout(cleanup_session, 0)
+
+def terminate_session():
+    if is_running():
+        try:
+            dlv_process.terminate()
+        except:
+            traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+            dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
 
 def cleanup_session():
     global dlv_logger
@@ -350,6 +360,8 @@ def cleanup_session():
     if dlv_const.is_project_executable():
         dlv_const.clear_project_executable()
         dlv_logger.debug("Cleared project executable settings")
+    if dlv_connect._is_open():
+        dlv_connect._close()
     dlv_logger.stop()
 
 def cleanup_server():
@@ -360,8 +372,8 @@ def cleanup_server():
         try:
             dlv_server_process.terminate()
         except:
-            traceback.print_exc()
-            dlv_logger.error("Exception thrown, details in Sublime console")
+            traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+            dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
             dlv_server_process.kill()
             dlv_logger.error("Delve server killed after timeout")
     if dlv_console_view.is_open():
@@ -372,16 +384,22 @@ def load_session_subprocess(cmd_session):
     global dlv_logger
     global dlv_process
 
-    message = "Delve session started with command: %s" % " ".join(cmd_session)
-    dlv_logger.info(message)
-    dlv_session_view.add_line(message)
     try:
-        dlv_process = subprocess.Popen(" ".join(cmd_session), shell=True, universal_newlines=True,
+        dlv_connect._open(dlv_const.HOST, dlv_const.PORT)
+        message = "Delve session started with command: %s" % " ".join(cmd_session)
+        dlv_logger.info(message)
+        dlv_session_view.add_line(message)
+        dlv_process = subprocess.Popen(cmd_session, shell=False, universal_newlines=True,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except:
-        traceback.print_exc()
-        dlv_logger.error("Exception thrown, details in Sublime console")
-        cleanup_session()
+        traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+        message = "Exception thrown, details in file: %s" % dlv_logger.get_file()
+        dlv_logger.error(message)
+        set_status_message(message)
+        if not is_local_mode():
+            cleanup_session()
+        else:
+            cleanup_server()
         return             
     t = threading.Thread(target=dlv_output, args=(dlv_process.stdout,))
     t.start()
@@ -405,7 +423,7 @@ class DlvStart(sublime_plugin.WindowCommand):
         cmd_server.append("--api-version=2")
         if dlv_const.LOG:
             cmd_server.append("--log")
-        value = dlv_const.HOST + ":" + dlv_const.PORT
+        value = "%s:%d" % (dlv_const.HOST, dlv_const.PORT)
         cmd_server.append("--listen=%s" % value)
         cmd_session.append(value)
         if dlv_const.ARGS != "":
@@ -465,7 +483,7 @@ class DlvStart(sublime_plugin.WindowCommand):
                     v.clear()
                 else:
                     v.close()
-        dlv_logger.debug("Ready debugging views")
+        dlv_logger.debug("Debugging views is ready")
 
         cmd_session, cmd_server = self.create_cmd()        
         if is_local_mode():
@@ -478,7 +496,7 @@ class DlvStart(sublime_plugin.WindowCommand):
                 else:
                     dlv_console_view.close()
             if dlv_console_view.is_open():
-                dlv_logger.debug("Ready console view")
+                dlv_logger.debug("Console view is ready")
             value = dlv_const.CWD
             cwd = None
             if value != "":
@@ -497,8 +515,8 @@ class DlvStart(sublime_plugin.WindowCommand):
                 dlv_server_process = subprocess.Popen(cmd_server, shell=False, cwd=cwd, universal_newlines=True,
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except:
-                traceback.print_exc()
-                message = "Exception thrown, details in Sublime console"
+                traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+                message = "Exception thrown, details in file: %s" % dlv_logger.get_file()
                 dlv_logger.error(message)
                 set_status_message(message)
                 cleanup_server()
@@ -527,8 +545,8 @@ class DlvStop(sublime_plugin.WindowCommand):
             try:
                 run_cmd('exit')
             except:
-                traceback.print_exc()
-                dlv_logger.error("Exception thrown, details in Sublime console")
+                traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+                dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
                 dlv_process.kill()
                 dlv_logger.error("Delve session killed after timeout")
                 cleanup_session()
@@ -583,6 +601,22 @@ class DlvTest(sublime_plugin.WindowCommand):
     def run(self):
         global dlv_const
         global dlv_logger
+        global dlv_connect
+
+        try:
+            dlv_connect._open(dlv_const.HOST, dlv_const.PORT)
+            result = dlv_connect.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
+            print(result)
+        finally:
+            dlv_connect._close()
+        # # result = conn.add(1, 2)
+        # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
+        # result = conn.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
+        # print(result)
+        # value = 'Testing!'
+        # result = conn.echo(value)
+        # assert result == value
+        # print('Single test completed')
 
         # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
         # message = json.dumps(callmethod)

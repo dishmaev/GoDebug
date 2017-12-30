@@ -12,7 +12,7 @@ class DlvLogger(object):
         self.__started = False
         self.__lock = threading.RLock()
         self.__log = logging.getLogger('SublimeDelve')
-        self.__log.setLevel(logging.DEBUG)
+        self.__log.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,
@@ -35,13 +35,16 @@ class DlvLogger(object):
         if file != dlv_const.STDOUT:
             self.__file = file
             self.__fh = logging.FileHandler(file);
-            self.__fh.setLevel(logging.DEBUG)
+            self.__fh.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.__fh.setFormatter(formatter)
             self.__log.addHandler(self.__fh)
 
-        self.__logging_level_switch["info"]("Start logging to file: %s" % (dlv_const.STDOUT if self.__file == "" else self.__file))
+        self.__logging_level_switch["info"]("Start logging to file: %s" % self.get_file())
         self.__started = True
+
+    def get_file(self):
+        return (dlv_const.STDOUT if self.__file == "" else self.__file)
 
     def __write_log(self, get, logging_level_switch):
         item = get()
