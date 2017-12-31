@@ -145,7 +145,7 @@ class JsonRpcTcpClient(object):
             notify = True
         response_text = self._send_and_receive(message, notify=notify)
         response = self._parse_response(response_text)
-        if response is not None:
+        if response is None:
             return response
         self._response = response        
         jsonrpctcp_validate_response(response)

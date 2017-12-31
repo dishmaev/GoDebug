@@ -26,10 +26,10 @@ dlv_command_history_pos = 0
 dlv_server_process = None
 dlv_process = None
 
-def normalize(filename):
-    if filename is None:
+def normalize(file):
+    if file is None:
         return None
-    return os.path.abspath(os.path.normcase(filename))
+    return os.path.abspath(os.path.normcase(file))
 
 def set_input(edit, text):
     dlv_input_view.erase(edit, sublime.Region(0, dlv_input_view.size()))
@@ -92,7 +92,7 @@ def is_local_mode():
 
     return dlv_const.MODE in [dlv_const.MODE_DEBUG, dlv_const.MODE_TEST]
 
-def run_cmd(cmd, timeout=dlv_const.TIMEOUT):
+def run_cmd(cmd):
     global dlv_logger
 
     if not is_running():
@@ -103,7 +103,7 @@ def run_cmd(cmd, timeout=dlv_const.TIMEOUT):
 
     if isinstance(cmd, list):
         for c in cmd:
-            run_cmd(c, timeout)
+            run_cmd(c)
         return
     message = "Input command: %s" % cmd
     dlv_session_view.add_line(message)
@@ -112,35 +112,77 @@ def run_cmd(cmd, timeout=dlv_const.TIMEOUT):
     dlv_process.stdin.flush()
     return
 
-class DlvBreakpoint(object):
-    def __init__(self, filename, line, name):
-        self.original_filename = normalize(filename)
-        self.original_line = line
-        self.name = name
-        self.add()
+class DlvObject(object):
+    def __init__(self, __name, **kwargs):
+        self.__object_name = __name
+        self.__kwargs = kwargs
+
+    def __getattr__(self, attr):
+        if attr.startswith('_'):
+            raise AttributeError('Methods that start with _ are not allowed')
+        elif attr in self.__kwargs:
+            return self.__kwargs.get(attr, None)
+        else:
+            raise AttributeError("Attribute %s not found, maybe data object still not loaded" % attr)
+
+    @property
+    def _as_parm(self):
+        response = {}
+        response[self._object_name] = {}
+        response[self._object_name].update(self.__kwargs)
+        return response
+
+    @property
+    def _object_name(self):
+        return self.__object_name
+
+class DlvBreakpoint(DlvObject):
+    def __init__(self, file, line, name = None, **kwargs):
+        super(DlvBreakpoint, self).__init__("Breakpoint", **kwargs)
+        self.__file = file
+        self.__line = line
+        self.__name = name
+        self._add()
+
+    def __getattr__(self, attr):
+        if attr == "name" and self.__name is not None:
+            return self.__name
+        return super(DlvBreakpoint, self).__getattr__(attr)
+
+    @property
+    def _as_parm(self):
+        response = super(DlvBreakpoint, self)._as_parm
+        response[self._object_name]['file'] = self.__file
+        response[self._object_name]['line'] = self.__line
+        if self.__name is not None:
+            response[self._object_name]['name'] = self.__name
+        return response
 
     @property
     def line(self):
-        return self.original_line
+        return self.__line
 
     @property
-    def filename(self):
-        return normalize(self.original_filename)
+    def file(self):
+        return normalize(self.__file)
 
-    def add(self):
+    def _add(self):
         global dlv_logger
 
         if is_running():
             dlv_logger.debug("TO-DO send json-rpc for add breakpoint")
 
-    def remove(self):
+    def _remove(self):
         global dlv_logger
 
         if is_running():
             dlv_logger.debug("TO-DO send json-rpc for remove breakpoint")
 
-    def format(self):
-        return "%s %s:%d" % (self.name, self.filename, self.line)
+    def _format(self):
+        if self.__name is not None:
+            return "%s %s:%d" % (self.name, self.file, self.line)
+        else:
+            return "%s:%d" % (self.file, self.line)
 
 class DlvBreakpointView(DlvView):
     def __init__(self):
@@ -148,7 +190,6 @@ class DlvBreakpointView(DlvView):
 
         super(DlvBreakpointView, self).__init__(dlv_const.BREAKPOINTS_VIEW, "Delve Breakpoints", scroll=False)
         self.breakpoints = []
-        self.number = 0
 
     def open(self):
         super(DlvBreakpointView, self).open()
@@ -157,12 +198,12 @@ class DlvBreakpointView(DlvView):
 
     def update_marker(self, view):
         bps = []
-        fn = view.file_name()
-        if fn is None:
+        file = view.file_name()
+        if file is None:
             return
-        fn = normalize(fn)
+        file = normalize(file)
         for bkpt in self.breakpoints:
-            if bkpt.filename == fn:
+            if bkpt.file == file:
                 bps.append(view.full_line(view.text_point(bkpt.line - 1, 0)))
 
         view.add_regions("sublimedelve.breakpoints", bps, "keyword.dlv", "circle", sublime.HIDDEN)
@@ -177,30 +218,29 @@ class DlvBreakpointView(DlvView):
         self.view.run_command("dlv_view_clear")
         self.counter = 0
         pos = self.get_view().viewport_position()
-        self.breakpoints.sort(key=lambda b: (b.filename, b.line))
+        self.breakpoints.sort(key=lambda b: (b.file, b.line))
         for bkpt in self.breakpoints:
-            self.add_line(bkpt.format())
+            self.add_line(bkpt._format())
 
-    def find_breakpoint(self, filename, line):
-        filename = normalize(filename)
+    def find_breakpoint(self, file, line):
+        file = normalize(file)
         for bkpt in self.breakpoints:
-            if bkpt.filename == filename and bkpt.line == line:
+            if bkpt.file == file and bkpt.line == line:
                 return bkpt
         return None
 
-    def toggle_breakpoint(self, filename, line):
-        bkpt = self.find_breakpoint(filename, line)
+    def toggle_breakpoint(self, file, line):
+        bkpt = self.find_breakpoint(file, line)
         if bkpt:
-            bkpt.remove()
+            bkpt._remove()
             self.breakpoints.remove(bkpt)
         else:
-            self.number += 1
-            self.breakpoints.append(DlvBreakpoint(filename, line, "b%d" % self.number))
+            self.breakpoints.append(DlvBreakpoint(file, line))
         self.update_view()
 
     def sync_breakpoints(self):
         for bkpt in self.breakpoints:
-            bkpt.add()
+            bkpt._add()
 
 dlv_session_view = DlvView(dlv_const.SESSION_VIEW, "Delve Session")
 dlv_console_view = DlvView(dlv_const.CONSOLE_VIEW, "Delve Console")
@@ -596,6 +636,8 @@ class DlvOpenBreakpointView(sublime_plugin.WindowCommand):
     def is_visible(self):
         return dlv_bkpt_view.is_closed()
 
+def breakpoint_object_decoder(obj):
+        return Breakpoint(obj['name'], obj['file'], obj['addr'])
 
 class DlvTest(sublime_plugin.WindowCommand):
     def run(self):
@@ -603,12 +645,19 @@ class DlvTest(sublime_plugin.WindowCommand):
         global dlv_logger
         global dlv_connect
 
+        breakpointin = DlvBreakpoint("/home/dmitry/Projects/gotest/hello.go", 16)
+
         try:
             dlv_connect._open(dlv_const.HOST, dlv_const.PORT)
-            result = dlv_connect.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
+            # print(breakpointin.name)
+            result = dlv_connect.RPCServer.CreateBreakpoint(breakpointin._as_parm)
+            # result = dlv_connect.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
             print(result)
+            breakpointout = DlvBreakpoint(**result['Breakpoint'])
+            print(breakpointout.addr)
         finally:
             dlv_connect._close()
+
         # # result = conn.add(1, 2)
         # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
         # result = conn.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})

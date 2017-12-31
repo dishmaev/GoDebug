@@ -12,7 +12,6 @@ class DlvLogger(object):
         self.__started = False
         self.__lock = threading.RLock()
         self.__log = logging.getLogger('SublimeDelve')
-        self.__log.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,
@@ -32,6 +31,7 @@ class DlvLogger(object):
             else:
                 self.stop()
 
+        self.__log.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
         if file != dlv_const.STDOUT:
             self.__file = file
             self.__fh = logging.FileHandler(file);

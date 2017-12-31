@@ -155,7 +155,7 @@ class DlvConst(object):
     # Whether to log the raw data read from and written to the Delve session and the inferior program.
     @property
     def DEBUG(self):
-        return self.__get_settings('log', False)
+        return self.__get_settings('debug', False)
 
     # File to optionally write all the raw data read from and written to the Delve session and the inferior program
     @property
