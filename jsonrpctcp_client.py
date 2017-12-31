@@ -7,12 +7,13 @@ from SublimeDelve.sdconst import dlv_const
 from SublimeDelve.sdlogger import dlv_logger
 
 JSONRPC_ERRORS = {
-    -32800: {'code':-32800, 'message':'Client connection not opened.'},
-    -32801: {'code':-32801, 'message':'Client socket send error.'},
-    -32802: {'code':-32802, 'message':'Client socket receive error.'},
-    -32700: {'code':-32700, 'message':'Parse Delve response error.'},
-    -32701: {'code':-32701, 'message':'Internal Delve error.'},
-    -32600: {'code':-32600, 'message':'Invalid client request.'},
+    -32800: {'code':-32800, 'message':'Client connection not opened'},
+    -32801: {'code':-32801, 'message':'Client socket send error'},
+    -32802: {'code':-32802, 'message':'Client socket receive error'},
+    -32803: {'code':-32803, 'message':'Client batch mode already enabled'},
+    -32700: {'code':-32700, 'message':'Parse Delve response error'},
+    -32701: {'code':-32701, 'message':'Internal Delve error'},
+    -32600: {'code':-32600, 'message':'Invalid client request'},
 }
 
 class JsonRpcTcpProtocolError(Exception):
@@ -20,7 +21,7 @@ class JsonRpcTcpProtocolError(Exception):
     
     def __init__(self, code, message=None, data=None):
         if message is None:
-            message = JSONRPC_ERRORS.get(code, {}).get('message', 'Unknown error.')
+            message = JSONRPC_ERRORS.get(code, {}).get('message', 'Unknown error')
         self.message = message
         self.code = code
         self.data = data
@@ -57,12 +58,12 @@ class JsonRpcTcpClient(object):
 
     def __init__(self, **kwargs):
         self._requests = []
-        self.__batch = kwargs.get('batch', None)
+        self.__batch = False
         self.sock_opened = False
 
     def __getattr__(self, key):
         if key.startswith('_'):
-            raise AttributeError('Methods that start with _ are not allowed.')
+            raise AttributeError('Methods that start with _ are not allowed')
         req_id = u'%s' % uuid.uuid4()
         request = JsonRpcTcpClientRequest(self, namespace=key, req_id=req_id)
         self._requests.append(request)
@@ -104,17 +105,17 @@ class JsonRpcTcpClient(object):
         self._requests.append(request)
         return request
         
-    def _batch(self):
+    def _prepare_batch(self):
         """
-        Returns a specialized version of the Client class, prepped for
-        a series of calls which will only be sent when the Client is
-        __call__()ed.
+        Prepare Client for batch calls
         """
-        return JsonRpcTcpClient(self._addr, batch=True)
+        if self.__batch:
+            raise JsonRpcTcpProtocolError(-32803)
+        self.__batch = True
         
     def _is_batch(self):
         """ Checks whether the batch flag is set. """
-        return self.__batch is True
+        return self.__batch
         
     def __call__(self):
         if not self.sock_opened:
@@ -184,11 +185,10 @@ class JsonRpcTcpClient(object):
         JSON text.
         """
         responselist = []
-        message_bytes = message.encode(sys.getdefaultencoding())
         dlv_logger.debug('CLIENT | REQUEST: %s' % message)
 
         try:
-            self.sock.send(message_bytes)
+            self.sock.send(message.encode(sys.getdefaultencoding()))
         except:
             self._close()
             raise JsonRpcTcpProtocolError(-32801)
@@ -201,8 +201,8 @@ class JsonRpcTcpClient(object):
                 raise JsonRpcTcpProtocolError(-32802)
             if not data: 
                 break
-            data_string = data.strip().decode(sys.getdefaultencoding())
-            responselist.append(data_string)
+            response_text = data.strip().decode(sys.getdefaultencoding())
+            responselist.append(response_text)
             if len(data) < dlv_const.BUFFER:
                 break
         response = ''.join(responselist)
@@ -246,7 +246,7 @@ class JsonRpcTcpBatchResponses(object):
             responses = self._response_by_id.get(None)
         if not responses or len(responses) == 0:
             raise KeyError(
-                'Job "%s" does not exist or has already be retrieved.' 
+                'Job "%s" does not exist or has already be retrieved' 
                 % req_id
             )
         response = responses.pop(0)
@@ -308,14 +308,7 @@ class JsonRpcTcpClientRequest(object):
         if not self._notification:
             request['id'] = self._req_id
         return request
-        
-def jsonrpctcp_connect(host, port, key=None):
-    """
-    This is a wrapper function for the Client class.
-    """
-    client = JsonRpcTcpClient((host, port))
-    return client
-    
+            
 def jsonrpctcp_validate_response(response):
     """
     Parses the returned JSON object, verifies that it follows
@@ -328,7 +321,7 @@ def jsonrpctcp_validate_response(response):
     error = 'error' in response
  #   if not jsonrpc or not response_id or (not result and not error):
     if not response_id or (not result and not error):
-        raise Exception('Server returned invalid response.')
+        raise Exception('Server returned invalid response')
     if error and response.get('error') is not None:
         raise JsonRpcTcpProtocolError(
             -32701, 

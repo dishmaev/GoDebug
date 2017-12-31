@@ -14,6 +14,7 @@ from SublimeDelve.sdlogger import dlv_logger
 from SublimeDelve.jsonrpctcp_client import dlv_connect
 
 from SublimeDelve.sdview import DlvView
+from SublimeDelve.sdobjecttype import DlvObjectType
 
 dlv_panel_layout = {}
 dlv_panel_window = None
@@ -112,33 +113,9 @@ def run_cmd(cmd):
     dlv_process.stdin.flush()
     return
 
-class DlvObject(object):
-    def __init__(self, __name, **kwargs):
-        self.__object_name = __name
-        self.__kwargs = kwargs
-
-    def __getattr__(self, attr):
-        if attr.startswith('_'):
-            raise AttributeError('Methods that start with _ are not allowed')
-        elif attr in self.__kwargs:
-            return self.__kwargs.get(attr, None)
-        else:
-            raise AttributeError("Attribute %s not found, maybe data object still not loaded" % attr)
-
-    @property
-    def _as_parm(self):
-        response = {}
-        response[self._object_name] = {}
-        response[self._object_name].update(self.__kwargs)
-        return response
-
-    @property
-    def _object_name(self):
-        return self.__object_name
-
-class DlvBreakpoint(DlvObject):
+class DlvBreakpointType(DlvObjectType):
     def __init__(self, file, line, name = None, **kwargs):
-        super(DlvBreakpoint, self).__init__("Breakpoint", **kwargs)
+        super(DlvBreakpointType, self).__init__("Breakpoint", **kwargs)
         self.__file = file
         self.__line = line
         self.__name = name
@@ -147,11 +124,11 @@ class DlvBreakpoint(DlvObject):
     def __getattr__(self, attr):
         if attr == "name" and self.__name is not None:
             return self.__name
-        return super(DlvBreakpoint, self).__getattr__(attr)
+        return super(DlvBreakpointType, self).__getattr__(attr)
 
     @property
     def _as_parm(self):
-        response = super(DlvBreakpoint, self)._as_parm
+        response = super(DlvBreakpointType, self)._as_parm
         response[self._object_name]['file'] = self.__file
         response[self._object_name]['line'] = self.__line
         if self.__name is not None:
@@ -170,13 +147,22 @@ class DlvBreakpoint(DlvObject):
         global dlv_logger
 
         if is_running():
-            dlv_logger.debug("TO-DO send json-rpc for add breakpoint")
+            try:
+                response = dlv_connect.RPCServer.CreateBreakpoint(self._as_parm)
+                self._update(response)
+            except:
+                traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+                dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
 
     def _remove(self):
         global dlv_logger
 
         if is_running():
-            dlv_logger.debug("TO-DO send json-rpc for remove breakpoint")
+            try:
+                result = dlv_connect.RPCServer.ClearBreakpoint({"id": self.id, "name": self.name})
+            except:
+                traceback.print_exc(file=(sys.stdout if dlv_logger.get_file() == dlv_const.STDOUT else open(dlv_logger.get_file(),"a")))
+                dlv_logger.error("Exception thrown, details in file: %s" % dlv_logger.get_file())
 
     def _format(self):
         if self.__name is not None:
@@ -235,7 +221,7 @@ class DlvBreakpointView(DlvView):
             bkpt._remove()
             self.breakpoints.remove(bkpt)
         else:
-            self.breakpoints.append(DlvBreakpoint(file, line))
+            self.breakpoints.append(DlvBreakpointType(file, line))
         self.update_view()
 
     def sync_breakpoints(self):
@@ -259,7 +245,7 @@ class DlvToggleBreakpoint(sublime_plugin.TextCommand):
         if dlv_bkpt_view.is_open() and self.view.id() == dlv_bkpt_view.get_view().id():
             row = self.view.rowcol(self.view.sel()[0].begin())[0]
             if row < len(dlv_bkpt_view.breakpoints):
-                dlv_bkpt_view.breakpoints[row].remove()
+                dlv_bkpt_view.breakpoints[row]._remove()
                 dlv_bkpt_view.breakpoints.pop(row)
                 dlv_bkpt_view.update_view()
         elif fn is not None:
@@ -645,15 +631,15 @@ class DlvTest(sublime_plugin.WindowCommand):
         global dlv_logger
         global dlv_connect
 
-        breakpointin = DlvBreakpoint("/home/dmitry/Projects/gotest/hello.go", 16)
+        breakpointin = DlvBreakpointType("/home/dmitry/Projects/gotest/hello.go", 16)
 
         try:
             dlv_connect._open(dlv_const.HOST, dlv_const.PORT)
             # print(breakpointin.name)
             result = dlv_connect.RPCServer.CreateBreakpoint(breakpointin._as_parm)
             # result = dlv_connect.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
-            print(result)
-            breakpointout = DlvBreakpoint(**result['Breakpoint'])
+            breakpointin._update(result)
+            breakpointout = DlvBreakpointType(**result['Breakpoint'])
             print(breakpointout.addr)
         finally:
             dlv_connect._close()
