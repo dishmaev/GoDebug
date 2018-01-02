@@ -1,14 +1,13 @@
-
 class DlvObjectType(object):
     def __init__(self, __name, **kwargs):
         self.__object_name = __name
-        self.__kwargs = kwargs
+        self._kwargs = kwargs
 
     def __getattr__(self, attr):
         if attr.startswith('_'):
-            raise AttributeError('Methods that start with _ are not allowed')
-        elif attr in self.__kwargs:
-            return self.__kwargs.get(attr, None)
+            raise AttributeError("Methods that start with _  , like %s, are not allowed" % attr)
+        elif attr in self._kwargs:
+            return self._kwargs.get(attr, None)
         else:
             raise AttributeError("Attribute %s not found, maybe data object still not loaded" % attr)
 
@@ -16,14 +15,16 @@ class DlvObjectType(object):
     def _as_parm(self):
         response = {}
         response[self._object_name] = {}
-        response[self._object_name].update(self.__kwargs)
+        response[self._object_name].update(self._kwargs)
         return response
 
     @property
     def _object_name(self):
         return self.__object_name
 
-    def _update(self, data):
-        if type(data) != dict or self._object_name not in data:
+    def _update(self, data, name=None):
+        if name is None:
+            name = self._object_name
+        if type(data) != dict or name not in data:
             raise TypeError("Wrong data type for update" % attr)
-        self.__kwargs.update(data[self._object_name])
+        self._kwargs.update(data[name])

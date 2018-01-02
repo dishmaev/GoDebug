@@ -26,5 +26,10 @@
         "command": "dlv_next_cmd",
         "context": [{"key": "dlv_input_view"}],
         "keys": ["down"]
-    }
+    },
+    {
+        "command": "dlv_next",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
+        "keys": ["Ctrl+f10"]
+    },
 ]

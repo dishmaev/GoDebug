@@ -129,6 +129,7 @@ class JsonRpcTcpClient(object):
             result = self._call_single(requests[0])
         else:
             result = self._call_batch(requests)
+            self.__batch = False    
         self._requests = []
         return result
             
@@ -176,7 +177,7 @@ class JsonRpcTcpClient(object):
         if responses is None:
             responses = []
         assert type(responses) is list
-        return BatchResponses(responses, ids)
+        return JsonRpcTcpBatchResponses(responses, ids)
     
     def _send_and_receive(self, message, batch=False, notify=False):
         """
