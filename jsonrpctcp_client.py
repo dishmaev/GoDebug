@@ -10,7 +10,8 @@ JSONRPC_ERRORS = {
     -32800: {'code':-32800, 'message':'Client connection not opened'},
     -32801: {'code':-32801, 'message':'Client socket send error'},
     -32802: {'code':-32802, 'message':'Client socket receive error'},
-    -32803: {'code':-32803, 'message':'Client batch mode already enabled'},
+    -32803: {'code':-32803, 'message':'Client socket timeout'},
+    -32804: {'code':-32804, 'message':'Client batch mode already enabled'},
     -32700: {'code':-32700, 'message':'Parse Delve response error'},
     -32701: {'code':-32701, 'message':'Internal Delve error'},
     -32600: {'code':-32600, 'message':'Invalid client request'},
@@ -22,17 +23,24 @@ class JsonRpcTcpProtocolError(Exception):
     def __init__(self, code, message=None, data=None):
         if message is None:
             message = JSONRPC_ERRORS.get(code, {}).get('message', 'Unknown error')
-        self.message = message
-        self.code = code
-        self.data = data
+        self.__message = message
+        self.__code = code
+        self.__data = data
+
+    @property
+    def code(self):
+        return self.__code
+
+    @property
+    def message(self):
+        return self.__message
 
     def generate_error(self, *args, **kwargs):
-        message = self.message
         response = {
             'jsonrpc':"2.0", 
             'error': {
-                'message': message,
-                'code': self.code
+                'message': self.__message,
+                'code': self.__code
             },
             'id':kwargs.get('id', None)
         }
@@ -40,7 +48,7 @@ class JsonRpcTcpProtocolError(Exception):
         
     def __repr__(self):
         return (
-            '<ProtocolError> code:%s, message:%s, data:%s' % (self.code, self.message, self.data)
+            '<ProtocolError> code:%s, message:%s, data:%s' % (self.__code, self.__message, self.__data)
         )
 
     def __str__(self):
@@ -57,37 +65,39 @@ class JsonRpcTcpClient(object):
     # _response = None
 
     def __init__(self, **kwargs):
-        self._requests = []
+        self.__requests = []
         self.__batch = False
-        self.sock_opened = False
+        self.__sock_opened = False
 
     def __getattr__(self, key):
         if key.startswith('_'):
             raise AttributeError('Methods that start with _ are not allowed')
         req_id = u'%s' % uuid.uuid4()
         request = JsonRpcTcpClientRequest(self, namespace=key, req_id=req_id)
-        self._requests.append(request)
+        self.__requests.append(request)
         return request
 
     def _is_open(self):
-        return self.sock_opened
+        return self.__sock_opened
 
     def _open(self, host, port):
-        if self.sock_opened:
+        if self.__sock_opened:
             dlv_logger.debug("Socket already opened!")
             return
+        self.__requests = []
+        self.__batch = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(dlv_const.TIMEOUT)
         self.sock.connect((host, port))
-        self.sock_opened = True
+        self.__sock_opened = True
         dlv_logger.debug("Open socket %s:%d" % (host, port))
 
     def _close(self):
-        if self.sock_opened:
+        if self.__sock_opened:
             self.sock.close()
             self.sock = None
             dlv_logger.debug("Close socket")
-            self.sock_opened = False
+            self.__sock_opened = False
         else:
             dlv_logger.debug("Socket already closed!")
 
@@ -102,7 +112,7 @@ class JsonRpcTcpClient(object):
             notify = True,
             req_id = None
         )
-        self._requests.append(request)
+        self.__requests.append(request)
         return request
         
     def _prepare_batch(self):
@@ -110,7 +120,7 @@ class JsonRpcTcpClient(object):
         Prepare Client for batch calls
         """
         if self.__batch:
-            raise JsonRpcTcpProtocolError(-32803)
+            raise JsonRpcTcpProtocolError(-32804)
         self.__batch = True
         
     def _is_batch(self):
@@ -118,19 +128,19 @@ class JsonRpcTcpClient(object):
         return self.__batch
         
     def __call__(self):
-        if not self.sock_opened:
+        if not self.__sock_opened:
             raise JsonRpcTcpProtocolError(-32800)
-        assert len(self._requests) > 0
+        assert len(self.__requests) > 0
         requests = []
-        for i in range(len(self._requests)):
-            request = self._requests.pop(0)
+        for i in range(len(self.__requests)):
+            request = self.__requests.pop(0)
             requests.append(request._request())
         if not self._is_batch():
             result = self._call_single(requests[0])
         else:
             result = self._call_batch(requests)
             self.__batch = False    
-        self._requests = []
+        self.__requests = []
         return result
             
     def _call_single(self, request):
@@ -190,13 +200,19 @@ class JsonRpcTcpClient(object):
 
         try:
             self.sock.send(message.encode(sys.getdefaultencoding()))
+        except socket.timeout:
+            self._close()
+            raise JsonRpcTcpProtocolError(-32803)
         except:
             self._close()
             raise JsonRpcTcpProtocolError(-32801)
 
-        while not notify and self.sock_opened:
+        while not notify and self.__sock_opened:
             try:
                 data = self.sock.recv(dlv_const.BUFFER)
+            except socket.timeout:
+                self._close()
+                raise JsonRpcTcpProtocolError(-32803)
             except:
                 self._close()
                 raise JsonRpcTcpProtocolError(-32802)
@@ -228,23 +244,23 @@ class JsonRpcTcpBatchResponses(object):
     """
     
     def __init__(self, responses, ids):
-        self.responses = responses
-        self.ids = ids        
+        self.__responses = responses
+        self.__ids = ids        
         response_by_id = {}
         for response in responses:
             response_id = response.get('id', None)
             response_by_id.setdefault(response_id, [])
             response_by_id[response_id].append(response)
-        self._response_by_id = response_by_id
+        self.__response_by_id = response_by_id
         
     def __iter__(self):
-        for request_id in self.ids:
+        for request_id in self.__ids:
             yield self.get(request_id)
             
     def get(self, req_id):
-        responses = self._response_by_id.get(req_id, None)
+        responses = self.__response_by_id.get(req_id, None)
         if not responses:
-            responses = self._response_by_id.get(None)
+            responses = self.__response_by_id.get(None)
         if not responses or len(responses) == 0:
             raise KeyError(
                 'Job "%s" does not exist or has already be retrieved' 
@@ -264,18 +280,18 @@ class JsonRpcTcpClientRequest(object):
     """
 
     def __init__(self, client, namespace='', notify=False, req_id=None):
-        self._client = client
-        self._namespace = namespace
-        self._notification = notify
-        self._req_id = req_id
-        self._params = None
+        self.__client = client
+        self.__namespace = namespace
+        self.__notification = notify
+        self.__req_id = req_id
+        self.__params = None
 
     def __getattr__(self, key):
         if key.startswith('_'):
             raise AttributeError
-        if self._namespace:
-            self._namespace += '.'
-        self._namespace += key
+        if self.__namespace:
+            self.__namespace += '.'
+        self.__namespace += key
         return self
     
     def __call__(self,  *args, **kwargs):
@@ -294,20 +310,20 @@ class JsonRpcTcpClientRequest(object):
         Forms a valid jsonrpc query, and passes it on to the parent
         Client, returning the response.
         """
-        self._params = params
-        if not self._client._is_batch():
-            return self._client()
+        self.__params = params
+        if not self.__client._is_batch():
+            return self.__client()
         # Add batch logic here
         
     def _request(self):
         request = {
             'jsonrpc':'2.0', 
-            'method': self._namespace
+            'method': self.__namespace
         }
-        if self._params:
-            request['params'] = self._params
-        if not self._notification:
-            request['id'] = self._req_id
+        if self.__params:
+            request['params'] = self.__params
+        if not self.__notification:
+            request['id'] = self.__req_id
         return request
             
 def jsonrpctcp_validate_response(response):

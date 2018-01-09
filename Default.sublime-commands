@@ -22,8 +22,28 @@
         "command": "dlv_start"
     },
     {
+        "caption": "SublimeDelve: Resume",
+        "command": "dlv_resume"
+    },
+    {
+        "caption": "SublimeDelve: Next",
+        "command": "dlv_next"
+    },
+    {
+        "caption": "SublimeDelve: Step Into",
+        "command": "dlv_step_in"
+    },
+    {
+        "caption": "SublimeDelve: Step Out",
+        "command": "dlv_step_out"
+    },
+    {
         "caption": "SublimeDelve: Stop",
         "command": "dlv_stop"
+    },
+    {   
+        "caption": "SublimeDelve: Restart",
+        "command": "dlv_restart"
     },
     {
         "caption": "SublimeDelve: Open Session View",

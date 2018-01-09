@@ -26,5 +26,5 @@ class DlvObjectType(object):
         if name is None:
             name = self._object_name
         if type(data) != dict or name not in data:
-            raise TypeError("Wrong data type for update" % attr)
+            raise TypeError("Wrong data type for update %s" % name)
         self._kwargs.update(data[name])

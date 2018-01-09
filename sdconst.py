@@ -81,6 +81,42 @@ class DlvConst(object):
         return None
 
     @property
+    def CREATE_BREAKPOINT_COMMAND(self):
+        return 'createbreakpoint'
+
+    @property
+    def CLEAR_BREAKPOINT_COMMAND(self):
+        return 'clearbreakpoint'
+
+    @property
+    def CONTINUE_COMMAND(self):
+        return 'continue'
+
+    @property
+    def NEXT_COMMAND(self):
+        return 'next'
+
+    @property
+    def STEP_COMMAND(self):
+        return 'step'
+
+    @property
+    def STEPOUT_COMMAND(self):
+        return 'stepout'
+
+    @property
+    def RESTART_COMMAND(self):
+        return 'restart'
+
+    @property
+    def STATE_COMMAND(self):
+        return 'state'
+
+    @property
+    def EXIT_COMMAND(self):
+        return 'exit'
+
+    @property
     def PANEL_GROUP(self):
         return self.__panel_group_suffix
 
