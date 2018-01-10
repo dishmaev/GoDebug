@@ -56,5 +56,9 @@
     {
         "caption": "SublimeDelve: Open Breakpoint View",
         "command": "dlv_open_breakpoint_view"
-    }
+    },
+    {
+        "caption": "SublimeDelve: Open Variables View",
+        "command": "dlv_open_variable_view"
+    },
 ]

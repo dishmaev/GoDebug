@@ -12,10 +12,9 @@ class DlvView(object):
         self.counter = 0
 
     def get_panel_group(self):
-        global dlv_const
         return dlv_const.get_view_setting(self.name, dlv_const.PANEL_GROUP)
 
-    def open(self):
+    def open(self, reset=False):
         if self.view is None or self.view.window() is None:
             sublime.active_window().focus_group(self.get_panel_group())
             self.__create_view()
@@ -25,7 +24,7 @@ class DlvView(object):
             sublime.active_window().focus_group(self.get_panel_group())
             self.__destroy_view()
 
-    def clear(self):
+    def clear(self, reset=False):
         self.update_view()
 
     def __create_view(self):
@@ -36,7 +35,6 @@ class DlvView(object):
         self.view.settings().set('command_mode', False)
 
     def is_open_at_start(self):
-        global dlv_const
         return dlv_const.get_view_setting(self.name, dlv_const.OPEN_AT_START)
 
     def is_open(self):
@@ -48,12 +46,6 @@ class DlvView(object):
     def get_view_id(self):
         if self.view is not None:
             return self.view.id()
-        else:
-            return None
-
-    def get_viewport_position(self):
-        if self.view is not None:
-            return self.view.viewport_position()
         else:
             return None
 

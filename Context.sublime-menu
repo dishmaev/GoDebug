@@ -25,5 +25,9 @@
             "caption": "Open Console View",
             "command": "dlv_open_console_view"
         },
+        {
+            "caption": "Open Variables View",
+            "command": "dlv_open_variable_view"
+        }
     ]
 }]

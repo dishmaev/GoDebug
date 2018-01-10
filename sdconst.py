@@ -10,6 +10,11 @@ class DlvConst(object):
         self.__project_exec_settings = {}
         self.__project_exec_name = None
         self.__view_switch = {
+            self.VARIABLE_VIEW:     
+            { 
+                self.__panel_group_suffix: self.__get_variable_group,     
+                self.__open_at_start_suffix: self.__get_variable_open_at_start     
+            },
             self.SESSION_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_session_group,     
@@ -81,6 +86,14 @@ class DlvConst(object):
         return None
 
     @property
+    def STATE_COMMAND(self):
+        return 'state'
+
+    @property
+    def VARIABLE_COMMAND(self):
+        return 'variable'
+
+    @property
     def CREATE_BREAKPOINT_COMMAND(self):
         return 'createbreakpoint'
 
@@ -109,12 +122,8 @@ class DlvConst(object):
         return 'restart'
 
     @property
-    def STATE_COMMAND(self):
-        return 'state'
-
-    @property
-    def EXIT_COMMAND(self):
-        return 'exit'
+    def RUNTIME_COMMANDS(self):
+        return [self.CONTINUE_COMMAND, self.NEXT_COMMAND, self.STEP_COMMAND, self.STEPOUT_COMMAND]
 
     @property
     def PANEL_GROUP(self):
@@ -214,6 +223,18 @@ class DlvConst(object):
                         ]
                     }
                 )
+    # View name
+    @property
+    def VARIABLE_VIEW(self):
+        return "variable"
+
+    # View group in Delve panel
+    def __get_variable_group(self):
+        return self.__get_settings("%s_%s" % (self.VARIABLE_VIEW, self.__panel_group_suffix), 1)
+
+    # Open view when debugging starts
+    def __get_variable_open_at_start(self):
+        return self.__get_settings("%s_%s" % (self.VARIABLE_VIEW, self.__open_at_start_suffix), True)
 
     # View name
     @property
