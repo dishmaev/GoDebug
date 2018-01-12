@@ -9,7 +9,6 @@ class DlvView(object):
         self.title = title
         self.scroll = scroll
         self.view = None
-        self.counter = 0
 
     def get_panel_group(self):
         return dlv_const.get_view_setting(self.name, dlv_const.PANEL_GROUP)
@@ -56,19 +55,19 @@ class DlvView(object):
         sublime.active_window().focus_view(self.view)
         sublime.active_window().run_command("close")
         self.view = None
-        self.counter = 0
 
-    def add_line(self, line):
+    def add_line(self, line, prefix=' - '):
         if self.view is not None:
-            self.counter += 1
-            full_line = str(self.counter) + " - " + line + "\n"
+            full_line = prefix + line + "\n"
             self.view.run_command("dlv_view_add_line", {"line": full_line, "scroll": self.scroll })
 
     def update_view(self):
         if self.view is not None:
             self.view.run_command("dlv_view_clear")
-            self.counter = 0
 
+    def set_syntax(self, syntax):
+        if self.is_open():
+            self.view.set_syntax_file(syntax)
 
 class DlvViewClear(sublime_plugin.TextCommand):
     def run(self, edit):

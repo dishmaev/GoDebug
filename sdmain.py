@@ -108,8 +108,9 @@ def worker_callback(responses):
     global dlv_cursor_position
 
     update_views = []
-    update_marker_views = []
     update_position_view = None
+    bkpts_add = [] 
+    bkpts_del = []
     commonResult = True
 
     for response in responses:
@@ -123,38 +124,23 @@ def worker_callback(responses):
                 error_message = response['errormessage']
         if response['cmd'] == dlv_const.CREATE_BREAKPOINT_COMMAND:
             new_bkpt = DlvBreakpointType()
-            find_bkpt = None
             if result:
                 new_bkpt._update(response['response'])
                 find_bkpt = dlv_bkpt_view.find_breakpoint(new_bkpt.file, new_bkpt.line)
                 if find_bkpt is not None:
                     find_bkpt._update(response['response'])
                 else:
-                    dlv_bkpt_view.breakpoints.append(new_bkpt)
-                    view = sublime.active_window().find_open_file(new_bkpt.file)
-                    if view is not None and view not in update_marker_views:
-                        update_marker_views.append(view)
+                    bkpts_add.append(new_bkpt)
             else:
                 new_bkpt._update(response['parms'])
-                find_bkpt = dlv_bkpt_view.find_breakpoint(new_bkpt.file, new_bkpt.line)
-                if find_bkpt is not None:
-                    dlv_bkpt_view.breakpoints.remove(find_bkpt)
-                    view = sublime.active_window().find_open_file(new_bkpt.file)
-                    if view is not None and view not in update_marker_views:
-                        update_marker_views.append(view)
+                bkpts_del.append(new_bkpt)
             if dlv_bkpt_view not in update_views:
                 update_views.append(dlv_bkpt_view)
         elif response['cmd'] == dlv_const.CLEAR_BREAKPOINT_COMMAND:
             new_bkpt = DlvBreakpointType()
-            find_bkpt = None
             if result:
                 new_bkpt._update(response['response'])
-                find_bkpt = dlv_bkpt_view.find_breakpoint(new_bkpt.file, new_bkpt.line)
-                if find_bkpt is not None:
-                    dlv_bkpt_view.breakpoints.remove(find_bkpt)
-                    view = sublime.active_window().find_open_file(find_bkpt.file)
-                    if view is not None and view not in update_marker_views:
-                        update_marker_views.append(view)
+                bkpts_del.append(new_bkpt)
                 if dlv_bkpt_view not in update_views:
                     update_views.append(dlv_bkpt_view)
         elif response['cmd'] == dlv_const.VARIABLE_COMMAND:
@@ -186,7 +172,7 @@ def worker_callback(responses):
                     dlv_cursor = thread.file
                     dlv_cursor_position = thread.line
 
-    dlv_bkpt_view.update_marker(update_marker_views)
+    dlv_bkpt_view.upgrade_breakpoints(bkpts_add, bkpts_del)
 
     for view in update_views:
         view.update_view()
@@ -204,7 +190,9 @@ class DlvBreakpointType(DlvObjectType):
         super(DlvBreakpointType, self).__init__("Breakpoint", **kwargs)
         self.__file = file
         self.__line = line
+        self.__original_line = line
         self.__name = name
+        self.__showed = False
 
     def __getattr__(self, attr):
         if attr == "file" and self.__file is not None:
@@ -226,11 +214,34 @@ class DlvBreakpointType(DlvObjectType):
             response[self._object_name]['name'] = self.__name
         return response
 
+    @property
+    def _key(self):
+        if self.__original_line is None:
+            self.__original_line = self.line
+        return "dlv.bkpt%s" % self.__original_line
+
     def _add(self):
         dlv_worker.do(dlv_const.CREATE_BREAKPOINT_COMMAND, self._as_parm)
 
     def _remove(self):
         dlv_worker.do(dlv_const.CLEAR_BREAKPOINT_COMMAND, {"id": self.id, "name": self.name})
+
+    def _update_line(self, line):
+        assert (self.__original_line is not None)
+        self.__line = line
+
+    def _show(self, view):
+        if not self.__showed:
+            view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", "circle", sublime.HIDDEN)
+            self.__showed = True
+
+    def _hide(self, view):
+        if self.__showed:
+            view.erase_regions(self._key)
+            self.__showed = False
+
+    def _was_hided(self):
+        self.__showed = False
 
     def _format(self):
         if self.__name is not None:
@@ -272,13 +283,6 @@ class DlvtThreadType(DlvObjectType):
         else:
             return None
 
-class DlvtVariableType(DlvObjectType):
-    def __init__(self, **kwargs):
-        super(DlvtVariableType, self).__init__("Variable", **kwargs)
-
-    def _format(self):
-        return "%s %s: %s" % (self.name, self.type, self.value)
-
 class DlvBreakpointView(DlvView):
     def __init__(self):
         super(DlvBreakpointView, self).__init__(dlv_const.BREAKPOINTS_VIEW, "Delve Breakpoints", scroll=False)
@@ -287,18 +291,40 @@ class DlvBreakpointView(DlvView):
     def open(self, reset=False):
         super(DlvBreakpointView, self).open(reset)
         if self.is_open():
+            self.update_breakpoint_lines()
             self.update_view()
+
+    def hide_view_breakpoints(self, view):
+        for bkpt in self.breakpoints:
+            if bkpt.file == view.file_name():
+                bkpt._was_hided()
+
+    def upgrade_breakpoints(self, bkpts_add=[], bkpts_del=[]):
+        need_update = False
+        for bkpt in bkpts_add:
+            cur_bkpt = self.find_breakpoint(bkpt.file, bkpt.line)
+            assert (cur_bkpt is None)
+            cur_bkpt = bkpt
+            self.breakpoints.append(cur_bkpt)
+            update_view = sublime.active_window().find_open_file(cur_bkpt.file)
+            cur_bkpt._show(update_view)
+            need_update = True
+        for bkpt in bkpts_del:
+            cur_bkpt = self.find_breakpoint(bkpt.file, bkpt.line)
+            assert (cur_bkpt is not None)
+            update_view = sublime.active_window().find_open_file(cur_bkpt.file)
+            cur_bkpt._hide(update_view)
+            self.breakpoints.remove(cur_bkpt)
+            need_update = True
+        return need_update
 
     def update_marker(self, views):
         for view in views:
-            bps = []
             file = view.file_name()
-            if file is None:
-                continue
+            assert (file is not None)
             for bkpt in self.breakpoints:
                 if bkpt.file == file and not (dlv_cursor_position == bkpt.line and dlv_cursor == bkpt.file):
-                    bps.append(view.line(view.text_point(bkpt.line - 1, 0)))
-            view.add_regions("sublimedelve.breakpoints", bps, "keyword.dlv", "circle", sublime.HIDDEN)
+                    bkpt._show(view)
                             
     def update_view(self):
         super(DlvBreakpointView, self).update_view()
@@ -308,40 +334,207 @@ class DlvBreakpointView(DlvView):
         for bkpt in self.breakpoints:
             self.add_line(bkpt._format())
 
-    def find_breakpoint(self, file, line):
+    def find_breakpoint(self, file, line=None):
         for bkpt in self.breakpoints:
-            if bkpt.file == file and bkpt.line == line:
+            if bkpt.file == file and (line is None or line is not None and bkpt.line == line):
                 return bkpt
         return None
 
-    def toggle_breakpoint(self, files_lines):
-        if len(files_lines) == 0:
-            return
+    def toggle_breakpoint(self, elements):
+        assert (len(elements) > 0)
         requests = []
-        for file_line in files_lines:
-            bkpt = self.find_breakpoint(file_line['file'], file_line['line'])
+        bkpts_add = [] 
+        bkpts_del = []
+        for element in elements:
+            bkpt = self.find_breakpoint(element['file'], element['line'])
             if bkpt is not None:
                 if is_running():
                     requests.append({"cmd": dlv_const.CLEAR_BREAKPOINT_COMMAND, "parms": {"id": bkpt.id, "name": bkpt.name}})
-                else:
-                    self.breakpoints.remove(bkpt)
+                bkpts_del.append(bkpt)
             else:
-                bkpt = DlvBreakpointType(file_line['file'], file_line['line'])
-                if is_running():
+                value = element['value']
+                if not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
+                    bkpt = DlvBreakpointType(element['file'], element['line'])
                     requests.append({"cmd": dlv_const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
-                else:
-                    self.breakpoints.append(bkpt)
+                    bkpts_add.append(bkpt)
         if is_running():
-            dlv_worker.do_batch(requests)
+            if len(requests) > 0:
+                dlv_worker.do_batch(requests)
         else:
-            self.update_view()
-
+            if (self.upgrade_breakpoints(bkpts_add, bkpts_del)):
+                self.update_view()
+     
     def sync_breakpoints(self):
         requests = []
         for bkpt in self.breakpoints:
             requests.append({"cmd": dlv_const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
         requests.append({"cmd": dlv_const.CONTINUE_COMMAND, "parms": None})
         dlv_worker.do_batch(requests)
+
+    def update_breakpoint_lines(self, view=None):
+        got_changes = False
+        for bkpt in dlv_bkpt_view.breakpoints:
+            cur_view = view
+            if view is None:
+                cur_view = sublime.active_window().find_open_file(bkpt.file)
+                if cur_view is None:
+                    continue
+            else:
+                if bkpt.file != view.file_name():
+                    continue
+                else:
+                    cur_view = view
+            region = cur_view.get_regions(bkpt._key)
+            assert (len(region) == 1)
+            row, col = cur_view.rowcol(region[0].a)
+            row += 1
+            if bkpt.line != row:
+                bkpt._update_line(row)
+                got_changes = True
+        return got_changes
+
+class DlvtVariableType(DlvObjectType):
+    def __init__(self, parent=None, name=None, **kwargs):
+        super(DlvtVariableType, self).__init__("Variable", **kwargs)
+        self.__parent = parent
+        self.__name = name
+        self.__children = []
+        self.__expanded = False
+        self.__line = 0
+        self.__map_element = False
+
+    def __getattr__(self, attr):
+        if attr == "name" and self.__name is not None:
+            return self.__name
+        return super(DlvtVariableType, self).__getattr__(attr)
+
+    @property
+    def _children(self):
+        return self.__children
+
+    @property
+    def _line(self):
+        return self.__line
+
+    def _set_name(self, name):
+        assert (self.__name is None)
+        self.__name = name
+
+    def _set_map_key(self, key):
+        assert (self.__name is None)
+        self.__name = key
+        self.__map_element = True
+
+    def _format(self, indent="", output="", line=0):
+        icon = " "
+        if self._has_children():
+            if self.__expanded:
+                icon = "-"
+            else:
+                icon = "+"
+
+        length = self.len
+        capacity = self.cap
+        if self._is_pointer():
+            length = self._dereference()['len']
+            capacity = self._dereference()['cap']
+        suffix_len_cap = ""
+        suffix_len = str(length) if length > 0 or (length >= 0 and self._is_slice()) else ""
+        suffix_cap = str(capacity) if capacity > 0 or (capacity >= 0 and self._is_slice()) else ""
+
+        if suffix_len != "" and suffix_cap != "":
+            suffix_len_cap = "(len: %s, cap: %s)" % (suffix_len, suffix_cap)
+        elif suffix_len != "":
+            suffix_len_cap = "(len: %s)" % suffix_len
+        elif suffix_cap != "":
+            suffix_len_cap = "(cap: %s)" % suffix_cap
+
+        suffix_val = ""
+        chldn_len = len(self.children)
+        if chldn_len == 0 and not self._is_slice() and not self._is_map():
+            val = str(self.value)
+            if self._is_string():
+                val = '"%s"' % val
+            if not self.__map_element:
+                suffix_val = " = "
+            suffix_val += val
+
+        if output != "":
+            output += "\n"
+        if not self._is_map_element():
+            output += "%s%s%s %s%s%s" % (indent, icon, self.name, self.type, suffix_len_cap, suffix_val)
+        elif self._is_slice() or self._is_map():
+            output += "%s%s%s: %s%s" % (indent, icon, self.name, self.type, suffix_len_cap)
+        else:
+            output += "%s%s%s: %s" % (indent, icon, self.name, suffix_val)
+
+        self.__line = line
+        line += 1
+        indent += "    "
+        if self.__expanded:
+            for chld_var in self.__children:
+                output, line = chld_var._format(indent, output, line)
+        return (output, line)
+
+    def _is_expanded(self):
+        return self.__expanded
+
+    def _is_expanded(self):
+        return self.__expanded
+
+    def _is_string(self): 
+        return (self.type == 'string')
+
+    def _is_slice(self): 
+        return self.type.startswith('[')
+
+    def _is_map(self):
+        return self.type.startswith('map[')
+
+    def _is_map_element(self):
+        return self.__map_element
+
+    def _is_pointer(self): 
+        return self.type.startswith('*')
+
+    def _dereference(self):
+        assert (self._is_pointer() and len(self.children) == 1)
+        return self.children[0]
+
+    def _expand(self):
+        self.__expanded = True
+        if len(self.children) > 0 and len(self.__children) == 0:
+            self.__add_children()
+
+    def _collapse(self):
+        self.__expanded = False
+
+    def __add_children(self):
+        counter = 0
+        map_element_key = None
+        children = self.children
+        if self._is_pointer():
+            children = self._dereference()['children']
+        for child in children:
+            chld_var = DlvtVariableType(self)
+            chld_var._update({"Variable": child})
+            if chld_var.name == "" and self._is_slice():
+                chld_var._set_name(counter)
+                counter += 1
+            if self._is_map():
+                if map_element_key is None:
+                    val = chld_var.value
+                    if chld_var._is_string():
+                        val = '"%s"' % val
+                    map_element_key = val
+                    continue
+                else:
+                    chld_var._set_map_key(map_element_key)
+                    map_element_key = None
+            self.__children.append(chld_var)
+    
+    def _has_children(self):
+        return len(self.children) > 0
 
 class DlvVariableView(DlvView):
     def __init__(self):
@@ -351,6 +544,7 @@ class DlvVariableView(DlvView):
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
         if self.is_open():
+            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
             if reset:
                 self.variables = []                
             self.update_view()
@@ -375,8 +569,42 @@ class DlvVariableView(DlvView):
         super(DlvVariableView, self).update_view()
         if not self.is_open():
             return
+        output = ""
+        line = 0
         for var in self.variables:
-            self.add_line(var._format())
+            output, line = var._format(line=line)
+            self.add_line(output, ' ')
+
+    def get_variable_at_line(self, line, var_list=None):
+        if var_list is None:
+            var_list = self.variables
+        if len(var_list) == 0:
+            return None
+
+        for i in range(len(var_list)):
+            if var_list[i]._line == line:
+                return var_list[i]
+            elif var_list[i]._line > line:
+                return self.get_variable_at_line(line, var_list[i-1]._children)
+        return self.get_variable_at_line(line, var_list[len(var_list)-1]._children)
+
+    def expand_collapse_variable(self, view, expand=True, toggle=False):
+        row, col = view.rowcol(view.sel()[0].a)
+        if self.is_open() and view.id() == self.get_view_id():
+            var = self.get_variable_at_line(row)
+            if var is not None and var._has_children():
+                if toggle:
+                    if var._is_expanded():
+                        var._collapse()
+                    else:
+                        var._expand()
+                elif expand:
+                    var._expand()
+                else:
+                    var._collapse()
+                self.update_view()
+                self.view.show_at_center(self.view.text_point(row,0))
+
 
 dlv_session_view = DlvView(dlv_const.SESSION_VIEW, "Delve Session")
 dlv_console_view = DlvView(dlv_const.CONSOLE_VIEW, "Delve Console")
@@ -384,50 +612,89 @@ dlv_variable_view = DlvVariableView()
 dlv_bkpt_view = DlvBreakpointView()
 dlv_views = [dlv_session_view, dlv_variable_view, dlv_bkpt_view]
 
+def clear_position():
+    if dlv_last_cursor_view is not None:
+        region = dlv_last_cursor_view.get_regions("dlv.pos")
+        if region is None or len(region) == 0:
+            return
+        assert (len(region) == 1)
+        row, col = dlv_last_cursor_view.rowcol(region[0].a)
+        bkpt = dlv_bkpt_view.find_breakpoint(dlv_last_cursor_view.file_name(), row + 1)
+        dlv_last_cursor_view.erase_regions("dlv.pos")
+        if bkpt is not None:
+            bkpt._show(dlv_last_cursor_view)
+
 def update_position(view=None):
     global dlv_last_cursor_view
 
-    if dlv_last_cursor_view is not None:
-        dlv_last_cursor_view.erase_regions("sublimedelve.position")
-        if view is None:
-           dlv_bkpt_view.update_marker([dlv_last_cursor_view])
+    clear_position()
     dlv_last_cursor_view = view
-    if view is not None:
-        cursor = []
-        if dlv_cursor == view.file_name() and dlv_cursor_position != 0:
-            cursor.append(view.line(view.text_point(dlv_cursor_position - 1, 0)))
-        if is_running():
-            view.add_regions("sublimedelve.position", cursor, "entity.name.class", "bookmark", sublime.HIDDEN)
-            dlv_bkpt_view.update_marker([view])
+    if view is not None and dlv_cursor == view.file_name() and dlv_cursor_position != 0:
+        bkpt = dlv_bkpt_view.find_breakpoint(dlv_cursor, dlv_cursor_position)
+        if  is_running():
+            if bkpt is not None:
+                bkpt._hide(view)
+            view.add_regions("dlv.pos", [view.line(view.text_point(dlv_cursor_position - 1, 0))], \
+                "entity.name.class", "bookmark", sublime.HIDDEN)
 
 def sync_breakpoints():
     dlv_bkpt_view.sync_breakpoints()
 
 class DlvToggleBreakpoint(sublime_plugin.TextCommand):
     def run(self, edit):
+        elements = []
         update_view = self.view
-        file = update_view.file_name()
+        file = self.view.file_name()
         if dlv_bkpt_view.is_open() and self.view.id() == dlv_bkpt_view.get_view_id():
             row = self.view.rowcol(self.view.sel()[0].begin())[0]
             if row < len(dlv_bkpt_view.breakpoints):
                 bkpt = dlv_bkpt_view.breakpoints[row]
-                if is_running():
-                    bkpt._remove()
-                else:
-                    dlv_bkpt_view.breakpoints.pop(row)
-                    dlv_bkpt_view.update_view()
-                update_view = sublime.active_window().find_open_file(bkpt.file)
-        elif file is not None: # not dlv_bkpt_view, where file is None
-            files_lines = []
+                elements.append({"file": bkpt.file, "line": bkpt.line})
+        elif file is not None: # code source file
             for sel in self.view.sel():
                 line, col = self.view.rowcol(sel.a)
                 value = ''.join(self.view.substr(self.view.line(self.view.text_point(line, 0))).split())
-                if len(value) > 0 and not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
-                    files_lines.append({"file": file, "line": line + 1})
-            if len(files_lines) > 0:
-                dlv_bkpt_view.toggle_breakpoint(files_lines)
-        if not is_running() and update_view is not None:
-            dlv_bkpt_view.update_marker([update_view])
+                if len(value) > 0:
+                    elements.append({"file": file, "line": line + 1, "value": value})
+        dlv_bkpt_view.toggle_breakpoint(elements)    
+
+
+
+#                 if is_running():
+#                     bkpt._remove()
+#                 else:
+#                     dlv_bkpt_view.breakpoints.pop(row)
+#                     dlv_bkpt_view.update_view()
+#                 update_view = sublime.active_window().find_open_file(bkpt.file)
+
+
+
+        
+
+#         update_view = self.view
+#         file = update_view.file_name()
+#         if dlv_bkpt_view.is_open() and self.view.id() == dlv_bkpt_view.get_view_id():
+#             row = self.view.rowcol(self.view.sel()[0].begin())[0]
+#             if row < len(dlv_bkpt_view.breakpoints):
+#                 bkpt = dlv_bkpt_view.breakpoints[row]
+#                 if is_running():
+#                     bkpt._remove()
+#                 else:
+#                     dlv_bkpt_view.breakpoints.pop(row)
+#                     dlv_bkpt_view.update_view()
+#                 update_view = sublime.active_window().find_open_file(bkpt.file)
+#         elif file is not None: # not dlv_bkpt_view, where file is None
+#             files_lines = []
+#             for sel in self.view.sel():
+#                 line, col = self.view.rowcol(sel.a)
+#                 value = ''.join(self.view.substr(self.view.line(self.view.text_point(line, 0))).split())
+# # TO-DO Error
+#                 if len(value) > 0 and not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
+#                     files_lines.append({"file": file, "line": line + 1})
+#             if len(files_lines) > 0:
+#                 dlv_bkpt_view.toggle_breakpoint(files_lines)
+#         if not is_running() and update_view is not None:
+#             dlv_bkpt_view.update_marker([update_view], bkpts_append, bkpts_remove)
 
     def is_enabled(self):
         view = sublime.active_window().active_view()
@@ -437,6 +704,46 @@ class DlvToggleBreakpoint(sublime_plugin.TextCommand):
         view = sublime.active_window().active_view()
         return is_gosource(view.file_name()) or dlv_bkpt_view.is_open() and view.id() == dlv_bkpt_view.get_view_id()
 
+class DlvClick(sublime_plugin.TextCommand):
+    def run(self, edit):
+        if not is_running():
+            return
+        if dlv_variable_view.is_open() and self.view.id() == dlv_variable_view.get_view_id():
+            print('test')
+            dlv_variable_view.expand_collapse_variable(self.view, toggle=True)
+
+    def is_enabled(self):
+        return is_running()
+
+class DlvDoubleClick(sublime_plugin.TextCommand):
+    def run(self, edit):
+        self.view.run_command("dlv_edit_variable")
+
+    def is_enabled(self):
+        return is_running() and dlv_variable_view.is_open() and self.view.id() == dlv_variable_view.get_view_id()
+
+class DlvCollapseVariable(sublime_plugin.TextCommand):
+    def run(self, edit):
+        dlv_variable_view.expand_collapse_variable(self.view, expand=False)
+
+    def is_enabled(self):
+        if not is_running():
+            return False
+        if dlv_variable_view.is_open() and self.view.id() == dlv_variable_view.get_view_id():
+            return True
+        return False
+
+class DlvExpandVariable(sublime_plugin.TextCommand):
+    def run(self, edit):
+        dlv_variable_view.expand_collapse_variable(self.view)
+
+    def is_enabled(self):
+        if not is_running():
+            return False
+        if dlv_variable_view.is_open() and self.view.id() == dlv_variable_view.get_view_id():
+            return True
+        return False
+
 class DlvEventListener(sublime_plugin.EventListener):
     def on_query_context(self, view, key, operator, operand, match_all):
         if key == "dlv_running":
@@ -444,8 +751,7 @@ class DlvEventListener(sublime_plugin.EventListener):
         elif key == "dlv_input_view":
             return dlv_input_view is not None and view.id() == dlv_input_view.id()
         elif key.startswith("dlv_"):
-            pass
-            # v = gdb_variables_view
+            v = dlv_variable_view
             # if key.startswith("gdb_register_view"):
             #     v = gdb_register_view
             # elif key.startswith("gdb_disassembly_view"):
@@ -453,13 +759,32 @@ class DlvEventListener(sublime_plugin.EventListener):
             if key.endswith("open"):
                 return v.is_open() == operand
             else:
-                # if v.get_view() is None:
-                #     return False == operand
+                if v.is_closed():
+                    return False == operand
                 return (view.id() == v.get_view_id()) == operand
         return None
 
+    def on_activated(self, view):
+        if view.file_name() is not None:
+            dlv_bkpt_view.update_marker([view])
+            if is_running():
+                update_position(view)
+
     def on_load(self, view):
-        update_position(view)
+        if view.file_name() is not None:
+            dlv_bkpt_view.update_marker([view])
+            if is_running():
+                update_position(view)
+
+    def on_modified(self, view):
+        if dlv_bkpt_view.is_open() and not is_running():
+            if dlv_bkpt_view.update_breakpoint_lines(view):
+                dlv_bkpt_view.update_view()
+
+    def on_pre_close(self, view):
+        if not is_running():
+            if dlv_bkpt_view.update_breakpoint_lines(view):
+                dlv_bkpt_view.update_view()
 
     def on_close(self, view):
         for v in dlv_views:
@@ -468,6 +793,7 @@ class DlvEventListener(sublime_plugin.EventListener):
                 break
         if dlv_console_view.is_open() and view.id() == dlv_console_view.get_view_id():
             dlv_console_view.was_closed()
+        dlv_bkpt_view.hide_view_breakpoints(view)
 
 def set_status_message(message):
     sublime.status_message(message)
@@ -579,9 +905,7 @@ def cleanup_session():
         dlv_logger.debug("Cleared project executable settings")
     dlv_worker.stop()
     dlv_logger.stop()
-    dlv_cursor = ''
-    dlv_cursor_position = 0
-    update_position()
+    clear_position()
 
 def terminate_server():
     global dlv_logger
@@ -620,6 +944,9 @@ def load_session_subprocess(cmd_session):
         else:
             cleanup_session()
         return             
+    dlv_cursor = ''
+    dlv_cursor_position = 0
+    dlv_last_cursor_view = None
     t = threading.Thread(target=dlv_output, args=(dlv_process.stdout,))
     t.start()
     t = threading.Thread(target=dlv_output, args=(dlv_process.stderr,))
@@ -718,10 +1045,13 @@ class DlvStart(sublime_plugin.WindowCommand):
             if value != "":
                 cwd = value
             else:
-                if active_view is not None:
-                    file_name = active_view.file_name()
-                    if file_name is not None:
-                        cwd = os.path.dirname(file_name)
+                file_name = None
+                if window is not None:
+                    file_name = window.project_file_name()
+                    if file_name is None and active_view is not None:
+                        file_name = active_view.file_name()
+                if file_name is not None:
+                    cwd = os.path.dirname(file_name)
             set_status_message("Starts Delve server, wait...")
             message = "Delve server started with command: %s" % " ".join(cmd_server)
             dlv_logger.info(message)

@@ -1,5 +1,15 @@
 [
     {
+        "command": "dlv_expand_variable",
+        "keys": ["right"],
+        "context": [{"key": "dlv_running"}, {"key": "dlv_variable_view"}]
+    },
+    {
+        "command": "dlv_collapse_variable",
+        "keys": ["left"],
+        "context": [{"key": "dlv_running"}, {"key": "dlv_variable_view"}]
+    },
+    {
         "command": "dlv_start",
         "context": [{"key": "dlv_running", "operator": "equal", "operand": false}],
         "keys": ["ctrl+f5"]
