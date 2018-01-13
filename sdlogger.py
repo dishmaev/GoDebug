@@ -2,16 +2,16 @@ import queue
 import threading
 import logging
 
-from SublimeDelve.sdconst import dlv_const
-
 class DlvLogger(object):
-    def __init__(self):
+    def __init__(self, key, const):
+        self.__key = key
+        self.__const = const
         self.__fh = None
         self.__file = "" # log file name, not "stdout"
         self.__log_queue = queue.Queue()
         self.__started = False
         self.__lock = threading.RLock()
-        self.__log = logging.getLogger('SublimeDelve')
+        self.__log = logging.getLogger("SublimeDelve %s" % self.__key)
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,
@@ -31,11 +31,11 @@ class DlvLogger(object):
             else:
                 self.stop()
 
-        self.__log.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
-        if file != dlv_const.STDOUT:
+        self.__log.setLevel(logging.DEBUG if self.__const.DEBUG else logging.INFO)
+        if file != self.__const.STDOUT:
             self.__file = file
             self.__fh = logging.FileHandler(file);
-            self.__fh.setLevel(logging.DEBUG if dlv_const.DEBUG else logging.INFO)
+            self.__fh.setLevel(logging.DEBUG if self.__const.DEBUG else logging.INFO)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.__fh.setFormatter(formatter)
             self.__log.addHandler(self.__fh)
@@ -44,7 +44,7 @@ class DlvLogger(object):
         self.__started = True
 
     def get_file(self):
-        return (dlv_const.STDOUT if self.__file == "" else self.__file)
+        return (self.__const.STDOUT if self.__file == "" else self.__file)
 
     def __write_log(self, get, logging_level_switch):
         item = get()
@@ -87,5 +87,3 @@ class DlvLogger(object):
 
     def critical(self, message):
         self.__do_log("critical", message)
-
-dlv_logger = DlvLogger()

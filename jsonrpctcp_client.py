@@ -3,9 +3,6 @@ import json
 import socket 
 import uuid
 
-from SublimeDelve.sdconst import dlv_const
-from SublimeDelve.sdlogger import dlv_logger
-
 JSONRPC_ERRORS = {
     -32800: {'code':-32800, 'message':'Client connection not opened'},
     -32801: {'code':-32801, 'message':'Client socket send error'},
@@ -64,7 +61,9 @@ class JsonRpcTcpClient(object):
     # _request = None
     # _response = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, const, logger):
+        self.__const = const
+        self.__logger = logger
         self.__requests = []
         self.__batch = False
         self.__sock_opened = False
@@ -82,24 +81,24 @@ class JsonRpcTcpClient(object):
 
     def _open(self, host, port):
         if self.__sock_opened:
-            dlv_logger.debug("Socket already opened!")
+            self.__logger.debug("Socket already opened!")
             return
         self.__requests = []
         self.__batch = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(dlv_const.TIMEOUT)
+        self.sock.settimeout(self.__const.TIMEOUT)
         self.sock.connect((host, port))
         self.__sock_opened = True
-        dlv_logger.debug("Open socket %s:%d" % (host, port))
+        self.__logger.debug("Open socket %s:%d" % (host, port))
 
     def _close(self):
         if self.__sock_opened:
             self.sock.close()
             self.sock = None
-            dlv_logger.debug("Close socket")
+            self.__logger.debug("Close socket")
             self.__sock_opened = False
         else:
-            dlv_logger.debug("Socket already closed!")
+            self.__logger.debug("Socket already closed!")
 
     @property
     def _notification(self):
@@ -196,7 +195,7 @@ class JsonRpcTcpClient(object):
         JSON text.
         """
         responselist = []
-        dlv_logger.debug('CLIENT | REQUEST: %s' % message)
+        self.__logger.debug('CLIENT | REQUEST: %s' % message)
 
         try:
             self.sock.send(message.encode(sys.getdefaultencoding()))
@@ -209,7 +208,7 @@ class JsonRpcTcpClient(object):
 
         while not notify and self.__sock_opened:
             try:
-                data = self.sock.recv(dlv_const.BUFFER)
+                data = self.sock.recv(self.__const.BUFFER)
             except socket.timeout:
                 self._close()
                 raise JsonRpcTcpProtocolError(-32803)
@@ -220,10 +219,10 @@ class JsonRpcTcpClient(object):
                 break
             response_text = data.strip().decode(sys.getdefaultencoding())
             responselist.append(response_text)
-            if len(data) < dlv_const.BUFFER:
+            if len(data) < self.__const.BUFFER:
                 break
         response = ''.join(responselist)
-        dlv_logger.debug('CLIENT | RESPONSE: %s' % response)
+        self.__logger.debug('CLIENT | RESPONSE: %s' % response)
         return response
         
     def _parse_response(self, response):
@@ -344,5 +343,3 @@ def jsonrpctcp_validate_response(response):
             -32701, 
             response.get('error')
         )
-
-dlv_connect = JsonRpcTcpClient()

@@ -274,5 +274,3 @@ class DlvConst(object):
     # Open view when debugging starts
     def __get_breakpoints_open_at_start(self):
         return self.__get_settings("%s_%s" % (self.BREAKPOINTS_VIEW, self.__open_at_start_suffix), True)
-
-dlv_const = DlvConst()

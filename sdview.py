@@ -1,17 +1,16 @@
 import sublime
 import sublime_plugin
 
-from SublimeDelve.sdconst import dlv_const
-
 class DlvView(object):
-    def __init__(self, name, title, scroll=True):
+    def __init__(self, name, title, const, scroll=True):
         self.name = name
         self.title = title
+        self.const = const
         self.scroll = scroll
         self.view = None
 
     def get_panel_group(self):
-        return dlv_const.get_view_setting(self.name, dlv_const.PANEL_GROUP)
+        return self.const.get_view_setting(self.name, self.const.PANEL_GROUP)
 
     def open(self, reset=False):
         if self.view is None or self.view.window() is None:
@@ -34,7 +33,7 @@ class DlvView(object):
         self.view.settings().set('command_mode', False)
 
     def is_open_at_start(self):
-        return dlv_const.get_view_setting(self.name, dlv_const.OPEN_AT_START)
+        return self.const.get_view_setting(self.name, self.const.OPEN_AT_START)
 
     def is_open(self):
         return self.view is not None
