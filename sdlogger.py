@@ -3,15 +3,14 @@ import threading
 import logging
 
 class DlvLogger(object):
-    def __init__(self, key, const):
-        self.__key = key
+    def __init__(self, const):
         self.__const = const
         self.__fh = None
         self.__file = "" # log file name, not "stdout"
         self.__log_queue = queue.Queue()
         self.__started = False
         self.__lock = threading.RLock()
-        self.__log = logging.getLogger("SublimeDelve %s" % self.__key)
+        self.__log = logging.getLogger("SublimeDelve")
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,

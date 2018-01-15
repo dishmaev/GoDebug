@@ -3,7 +3,7 @@
     "caption": "Delve",
     "children": [
         { "command": "dlv_test", "caption": "My test"},
-        { "caption": "-", "id": "breakpoints" },
+        { "caption": "-", "id": "dlv_bkpt" },
         { "command": "dlv_toggle_breakpoint", "caption": "Toggle Breakpoint" },
         { "command": "dlv_start", "caption": "Start Debugging"},
         { "command": "dlv_resume", "caption": "Resume" },
@@ -18,6 +18,14 @@
             "command": "dlv_open_breakpoint_view"
         },
         {
+            "caption": "Open Stacktrace View",
+            "command": "dlv_open_stacktrace_view"
+        },
+        {
+            "caption": "Open Goroutinies View",
+            "command": "dlv_open_goroutine_view"
+        },
+        {
             "caption": "Open Session View",
             "command": "dlv_open_session_view"
         },
@@ -28,6 +36,28 @@
         {
             "caption": "Open Variables View",
             "command": "dlv_open_variable_view"
+        },
+        {
+            "caption": "Open Watches View",
+            "command": "dlv_open_watch_view"
+        },
+        { "caption": "-", "id": "dlv_watch" },
+        {   
+            "caption": "Add watch",
+            "command": "dlv_add_watch"
+        },
+        {   
+            "caption": "Remove watch",
+            "command": "dlv_remove_watch" 
+        },
+        { "caption": "-", "id": "dlv_enable" },
+        {   
+            "caption": "Enable",
+            "command": "dlv_enable"
+        },
+        {   
+            "caption": "Disable",
+            "command": "dlv_disable" 
         }
     ]
 }]

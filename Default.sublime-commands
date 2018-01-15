@@ -45,6 +45,26 @@
         "caption": "SublimeDelve: Restart",
         "command": "dlv_restart"
     },
+    {   
+        "caption": "SublimeDelve: Enable",
+        "command": "dlv_enable"
+    },
+    {   
+        "caption": "SublimeDelve: Disable",
+        "command": "dlv_disable" 
+    },
+    {
+        "caption": "SublimeDelve: Open Breakpoint View",
+        "command": "dlv_open_breakpoint_view"
+    },
+    {
+        "caption": "SublimeDelve: Open Stacktrace View",
+        "command": "dlv_open_stacktrace_view"
+    },
+    {
+        "caption": "SublimeDelve: Open Goroutinies View",
+        "command": "dlv_open_goroutine_view"
+    },
     {
         "caption": "SublimeDelve: Open Session View",
         "command": "dlv_open_session_view"
@@ -52,10 +72,6 @@
     {
         "caption": "SublimeDelve: Open Console View",
         "command": "dlv_open_console_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Breakpoint View",
-        "command": "dlv_open_breakpoint_view"
     },
     {
         "caption": "SublimeDelve: Open Variables View",

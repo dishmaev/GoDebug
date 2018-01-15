@@ -2,7 +2,7 @@ import sublime
 import sublime_plugin
 
 class DlvView(object):
-    def __init__(self, name, title, const, scroll=True):
+    def __init__(self, name, title, const, scroll=False):
         self.name = name
         self.title = title
         self.const = const
@@ -34,6 +34,9 @@ class DlvView(object):
 
     def is_open_at_start(self):
         return self.const.get_view_setting(self.name, self.const.OPEN_AT_START)
+
+    def is_close_at_stop(self):
+        return self.const.get_view_setting(self.name, self.const.CLOSE_AT_STOP)
 
     def is_open(self):
         return self.view is not None
