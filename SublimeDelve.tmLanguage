@@ -6,7 +6,7 @@
 	<string>Based on work from github.com/frou/GoFeather and github.com/DisposaBoy/GoSublime</string>
 	<key>fileTypes</key>
 	<array>
-		<string>go</string>
+		<string>mygo</string>
 	</array>
 	<key>firstLineMatch</key>
 	<string>-[*]-( Mode:)? Go -[*]-</string>
@@ -317,8 +317,8 @@
 		</dict>
 	</dict>
 	<key>scopeName</key>
-	<string>source.go</string>
+	<string>sublimedelve.source.go</string>
 	<key>uuid</key>
-	<string>1caaa75c-b61d-11e2-ba93-138feb5db969</string>
+	<string>8cfd78a0-e680-42ab-b0b2-c3b7c5350c00</string>
 </dict>
 </plist>

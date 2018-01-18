@@ -34,6 +34,9 @@ def __default_cfg():
                 'maxStructFields': -1
             }
 
+def __get_eval_parms(goroutine_id, expr):
+    return {"Scope": {"GoroutineID": goroutine_id}, "Expr": expr, "Cfg": __default_cfg()}
+
 def __get_stacktrace_parms(goroutine_id):
     return {"Id": goroutine_id, "Depth": 20, "Full": True, "Cfg": __default_cfg()}
 
@@ -47,7 +50,7 @@ def __get_error_response(cmd, parms):
     return {"cmd": cmd, "parms": parms, "result": False}
 
 def __get_error_response_ex(cmd, parms, e):
-    return {"cmd": cmd, "parms": parms, "result": False, "errorcode": e.code, "errormessage": e.message}
+    return {"cmd": cmd, "parms": parms, "result": False, "error_code": e.code, "error_message": e.message}
 
 def _do_method(alive, queue, const, logger, worker_callback=None):
     connect = JsonRpcTcpClient(const, logger)
@@ -62,6 +65,7 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
             errors = False
             breakpoints = False
             goroutine_id = None
+            watches = None
             for request in requests:
                 cmd = request["cmd"]
                 parms = request["parms"]
@@ -89,6 +93,9 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                         response = connect.RPCServer.Restart(parms)
                     elif cmd == const.STACKTRACE_COMMAND:
                         response = connect.RPCServer.Stacktrace(__get_stacktrace_parms(parms['id']))
+                    elif cmd == const.WATCH_COMMAND:
+                        watches = parms['watches']
+                        continue  
                     else:
                         raise ValueError("Unknown worker command: %s" % cmd)
                     responses.append({"cmd": cmd, "result": True, "response": response})
@@ -96,13 +103,13 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                     traceback.print_exc(file=(sys.stdout if logger.get_file() == const.STDOUT else open(logger.get_file(),"a")))
                     logger.error("Exception thrown, details in file: %s" % logger.get_file())
                     responses.append(__get_error_response_ex(cmd, parms, e))
-                    if cmd != const.STATE_COMMAND:
+                    if cmd not in [const.STATE_COMMAND, const.CREATE_BREAKPOINT_COMMAND, const.CLEAR_BREAKPOINT_COMMAND]:
                         errors = True
                 except:
                     traceback.print_exc(file=(sys.stdout if logger.get_file() == const.STDOUT else open(logger.get_file(),"a")))
                     logger.error("Exception thrown, details in file: %s" % logger.get_file())
                     responses.append(__get_error_response(cmd, parms))
-                    if cmd != const.STATE_COMMAND:
+                    if cmd not in [const.STATE_COMMAND, const.CREATE_BREAKPOINT_COMMAND, const.CLEAR_BREAKPOINT_COMMAND]:
                         errors = True
             parms = {}
             if errors:
@@ -125,7 +132,7 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                     if breakpoints:
                         cmd = const.BREAKPOINT_COMMAND
                         response_breakpoints = connect.RPCServer.ListBreakpoints(parms)
-                        responses.append({"cmd": const.BREAKPOINT_COMMAND, "result": True, "response": response_breakpoints})
+                        responses.append({"cmd": cmd, "result": True, "response": response_breakpoints})
                     responses.append({"cmd": const.GOROUTINE_COMMAND, "result": True, "response": response_goroutines, "id": goroutine_id})
                 except JsonRpcTcpProtocolError as e:
                     responses.append(__get_error_response_ex(cmd, parms, e))
@@ -133,6 +140,19 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                 except:
                     responses.append(__get_error_response(cmd, parms))
                     errors = True
+                if not errors and watches is not None:
+                    cmd == const.WATCH_COMMAND
+                    response_watches = []
+                    for element in watches:
+                        parms['id'] = element['id']
+                        try:
+                            response_watches.append({"id": element['id'], "result": True, "eval": connect.RPCServer.Eval(__get_eval_parms(goroutine_id, element['expr']))})
+                        except JsonRpcTcpProtocolError as e:
+                            response_watches.append(__get_error_response_ex(cmd, parms, e))
+                        except:
+                            response_watches.append(__get_error_response(cmd, parms))
+                    responses.append({"cmd": const.WATCH_COMMAND, "result": True, "response": response_watches})
+
             if worker_callback is not None:
                 # callback
                 sublime.set_timeout(worker_callback(responses), 0)

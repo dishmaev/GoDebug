@@ -2,12 +2,11 @@ import sublime
 import sublime_plugin
 
 class DlvView(object):
-    def __init__(self, name, title, const, scroll=False):
+    def __init__(self, name, const, view=None, scroll=False):
         self.name = name
-        self.title = title
         self.const = const
+        self.view = view
         self.scroll = scroll
-        self.view = None
 
     def get_panel_group(self):
         return self.const.get_view_setting(self.name, self.const.PANEL_GROUP)
@@ -27,7 +26,7 @@ class DlvView(object):
 
     def __create_view(self):
         self.view = sublime.active_window().new_file()
-        self.view.set_name(self.title)
+        self.view.set_name(self.const.get_view_setting(self.name, self.const.TITLE))
         self.view.set_scratch(True)
         self.view.set_read_only(True)
         self.view.settings().set('command_mode', False)

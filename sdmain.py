@@ -21,7 +21,7 @@ from SublimeDelve.sdobjecttype import *
 dlv_project = {}
 
 class DlvProject(object):
-    def __init__(self, key):
+    def __init__(self, window):
         self.const = DlvConst()
 
         self.cursor = ''
@@ -43,16 +43,36 @@ class DlvProject(object):
         self.logger = log
         self.worker = DlvWorker(self.const, log, worker_callback)
         
-        self.session_view = DlvView(self.const.SESSION_VIEW, "Delve Session", self.const, True)
-        self.console_view = DlvView(self.const.CONSOLE_VIEW, "Delve Console", self.const, True)
-        self.stacktrace_view = DlvStacktraceView(self.const)
-        self.goroutine_view = DlvGoroutineView(self.const)
-        self.variable_view = DlvVariableView(self.const)
-        self.watch_view = DlvWatchView(self.const)
-        self.bkpt_view = DlvBreakpointView(self.const)
+        self.session_view = self.__initialize_view(window, self.const.SESSION_VIEW)
+        self.console_view = self.__initialize_view(window, self.const.CONSOLE_VIEW)
+        self.stacktrace_view = self.__initialize_view(window, self.const.STACKTRACE_VIEW)
+        self.goroutine_view = self.__initialize_view(window, self.const.GOROUTINE_VIEW)
+        self.variable_view = self.__initialize_view(window, self.const.VARIABLE_VIEW)
+        self.watch_view = self.__initialize_view(window, self.const.WATCH_VIEW)
+        self.bkpt_view = self.__initialize_view(window, self.const.BREAKPOINT_VIEW)
 
     def get_views(self):
        return [self.session_view, self.variable_view, self.watch_view, self.stacktrace_view, self.bkpt_view, self.goroutine_view]
+
+    def __initialize_view(self, window, name):
+        view = None
+        for v in window.views():
+            if v.name() == self.const.get_view_setting(name, self.const.TITLE):
+                view = v
+        if name == self.const.SESSION_VIEW:
+            return DlvView(name, self.const, view, True)
+        elif name == self.const.CONSOLE_VIEW:
+            return DlvView(name, self.const, view, True)
+        elif name == self.const.STACKTRACE_VIEW:
+            return DlvStacktraceView(self.const, view)
+        elif name == self.const.GOROUTINE_VIEW:
+            return DlvGoroutineView(self.const, view)
+        elif name == self.const.VARIABLE_VIEW:
+            return DlvVariableView(name, self.const)
+        elif name == self.const.WATCH_VIEW:
+            return DlvVariableView(name, self.const, view)
+        elif name == self.const.BREAKPOINT_VIEW:
+            return DlvBreakpointView(self.const, view)
 
     def reset_cursor(self):
         self.cursor = ''
@@ -80,9 +100,9 @@ def is_plugin_enable():
     if is_project_file_exists() and 'settings' in window.project_data():
         settings = window.project_data()['settings']
         if 'delve_enable' in settings and settings['delve_enable']:
-            key = sublime.active_window().id()
+            key = window.id()
             if not key in dlv_project:
-                dlv_project[key] = DlvProject(key)
+                dlv_project[key] = DlvProject(window)
             return True
     return False
 
@@ -177,7 +197,11 @@ def input_on_change(s):
     pass
 
 def is_running():
-    proc = get_client_proc()
+    proc =None
+    key = sublime.active_window().id()
+    if key in dlv_project:
+        project = dlv_project[key]
+        proc = project.client_subprocess
     return proc is not None and proc.poll() is None
 
 def is_server_running():
@@ -213,7 +237,11 @@ def run_input_cmd(cmd):
     except:
         traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
         get_logger().error("Exception thrown, details in file: %s" % get_logger().get_file())
-    get_worker().do(get_const().STATE_COMMAND)
+    requests = []
+    requests.append({"cmd": get_const().STATE_COMMAND, "parms": None})
+    if get_watch_view().is_watches_exist():
+        requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
+    get_worker().do_batch(requests)
 
 def worker_callback(responses):
     update_views = []
@@ -225,10 +253,12 @@ def worker_callback(responses):
     for response in responses:
         result = response['result']
         error_code = None
+        error_message = None
         if not result:
             commonResult = False
-            if 'errorcode' in response:
-                error_code = response['errorcode']
+            if 'error_code' in response:
+                error_code = response['error_code']
+                error_message = response['error_message']
         if response['cmd'] == get_const().CREATE_BREAKPOINT_COMMAND:
             new_bkpt = DlvBreakpointType()
             if result:
@@ -236,11 +266,16 @@ def worker_callback(responses):
                 find_bkpt = get_bkpt_view().find_breakpoint(new_bkpt.file, new_bkpt.line)
                 if find_bkpt is not None:
                     find_bkpt._update(response['response'])
+                    find_bkpt._reset_error_message()
                 else:
                     bkpts_add.append(new_bkpt)
             else:
                 new_bkpt._update(response['parms'])
-                bkpts_del.append(new_bkpt)
+                find_bkpt = get_bkpt_view().find_breakpoint(new_bkpt.file, new_bkpt.line)
+                if find_bkpt is None:
+                    bkpts_add.append(new_bkpt)
+                    find_bkpt = new_bkpt
+                find_bkpt._set_error_message(error_message)
             if get_bkpt_view() not in update_views:
                 update_views.append(get_bkpt_view())
         elif response['cmd'] == get_const().CLEAR_BREAKPOINT_COMMAND:
@@ -265,6 +300,11 @@ def worker_callback(responses):
                 get_goroutine_view().load_data(response['response'], response['id'])
                 if get_goroutine_view() not in update_views:
                     update_views.append(get_goroutine_view())
+        elif response['cmd'] == get_const().WATCH_COMMAND:
+            if result:
+                get_watch_view().load_data(response['response'])
+                if get_watch_view() not in update_views:
+                    update_views.append(get_watch_view())
         elif response['cmd'] == get_const().STATE_COMMAND:
             if not result and error_code != -32803:
                 terminate_session()
@@ -307,7 +347,9 @@ class DlvBreakpointType(DlvObjectType):
         self.__line = line
         self.__original_line = line
         self.__showed = False
+        self.__show_running = False
         self.__uuid = None
+        self.__error_message = None
 
     def __getattr__(self, attr):
         if attr == "file" and self.__file is not None:
@@ -331,11 +373,20 @@ class DlvBreakpointType(DlvObjectType):
             self.__original_line = self.line
         return "dlv.bkpt%s" % self.__original_line
 
-    def _add(self):
-        get_worker().do(get_const().CREATE_BREAKPOINT_COMMAND, self._as_parm)
+    # def _add(self):
+    #     get_worker().do(get_const().CREATE_BREAKPOINT_COMMAND, self._as_parm)
 
-    def _remove(self):
-        get_worker().do(get_const().CLEAR_BREAKPOINT_COMMAND, {"id": self.id, "name": self.name})
+    # def _remove(self):
+    #     get_worker().do(get_const().CLEAR_BREAKPOINT_COMMAND, {"id": self.id, "name": self.name})
+
+    def _set_error_message(self, error_message=None):
+        self.__error_message = error_message if error_message is not None else '<not available>'
+
+    def _reset_error_message(self):
+        self.__error_message = None  
+
+    def _is_error(self):
+        return (self.__error_message != None)
 
     def _set_uuid(self, uuid):
         self.__uuid = uuid
@@ -348,23 +399,35 @@ class DlvBreakpointType(DlvObjectType):
         self.__line = line
 
     def _show(self, view):
-        if not self.__showed:
-            view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", "circle", sublime.HIDDEN)
+        running = is_running()
+        if not self.__showed or running != self.__show_running:
+            icon_file = "Packages/SublimeDelve/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
+            view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", icon_file, sublime.HIDDEN)
             self.__showed = True
+            self.__show_running = running
 
     def _hide(self, view):
         if self.__showed:
             view.erase_regions(self._key)
             self.__showed = False
+            self.__show_running = False
 
     def _was_hided(self):
         self.__showed = False
+        self.__show_running = False
+
+    def _is_loaded(self):
+        return hasattr(self, 'id')
 
     def _format(self):
-        result = "\"%s:%d\"" % (os.path.basename(self.file), self.line)
-        if hasattr(self, 'id') and is_running():
-            result +=  " %d" % self.id
-        return result
+        output = "\"%s:%d\"" % (os.path.basename(self.file), self.line)
+        if is_running():
+            if not self._is_error():
+                if self._is_loaded():
+                    output +=  " %d" % self.id
+            else:
+                output +=  " \"%s\"" % self.__error_message
+        return output
 
 class DlvStateType(DlvObjectType):
     def __init__(self, **kwargs):
@@ -438,14 +501,19 @@ class DlvGoroutineType(DlvObjectType):
         return "%s \"%s:%d\" %d" % (self.currentLoc['function']['name'], os.path.basename(self.currentLoc['file']), self.currentLoc['line'], self.id)
 
 class DlvBreakpointView(DlvView):
-    def __init__(self, const):
-        super(DlvBreakpointView, self).__init__(const.BREAKPOINTS_VIEW, "Delve Breakpoints", const)
+    def __init__(self, const, view):
+        super(DlvBreakpointView, self).__init__(const.BREAKPOINT_VIEW, const, view)
         self.__breakpoints = []
+        if view is not None and view.settings().has('bkpts'):
+            bkpts_add = [] 
+            for element in view.settings().get('bkpts'):
+                bkpts_add.append(DlvBreakpointType(element['file'], element['line']))
+            self.upgrade_breakpoints(bkpts_add)
 
     def open(self, reset=False):
         super(DlvBreakpointView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
+            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
             self.update_breakpoint_lines()
             self.update_view()
 
@@ -496,8 +564,11 @@ class DlvBreakpointView(DlvView):
         if not self.is_open():
             return
         self.__breakpoints.sort(key=lambda b: (b.file, b.line))
+        bkpts = []
         for bkpt in self.__breakpoints:
             self.add_line(bkpt._format())
+            bkpts.append({"file": bkpt.file, "line": bkpt.line})
+        self.view.settings().set('bkpts', bkpts)
 
     def find_breakpoint_by_idx(self, idx):
         if idx >= 0 and idx < len(self.__breakpoints):
@@ -507,6 +578,8 @@ class DlvBreakpointView(DlvView):
     def find_breakpoint_by_id(self, id):
         assert (is_running())
         for bkpt in self.__breakpoints:
+            if bkpt._is_error():
+                continue
             if bkpt.id == id:
                 return bkpt
         return None
@@ -536,7 +609,7 @@ class DlvBreakpointView(DlvView):
                 bkpt._update({"Breakpoint": element})
                 bkpt._set_uuid(bkpt_uuid)
         for bkpt in self.__breakpoints:
-            if bkpt._get_uuid() != bkpt_uuid:
+            if bkpt._get_uuid() != bkpt_uuid and not bkpt._is_error():
                 bkpts_del.append(bkpt)
         self.upgrade_breakpoints(bkpts_add, bkpts_del)
 
@@ -545,12 +618,16 @@ class DlvBreakpointView(DlvView):
         requests = []
         bkpts_add = [] 
         bkpts_del = []
+        bkpts_error_del = []
         for element in elements:
             bkpt = self.find_breakpoint(element['file'], element['line'])
             if bkpt is not None:
-                if is_running():
-                    requests.append({"cmd": get_const().CLEAR_BREAKPOINT_COMMAND, "parms": {"id": bkpt.id, "name": bkpt.name}})
-                bkpts_del.append(bkpt)
+                if not bkpt._is_error():
+                    if is_running():
+                        requests.append({"cmd": get_const().CLEAR_BREAKPOINT_COMMAND, "parms": {"id": bkpt.id, "name": bkpt.name}})
+                    bkpts_del.append(bkpt)
+                else:
+                    bkpts_error_del.append(bkpt)
             else:
                 value = element['value']
                 if not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
@@ -560,6 +637,8 @@ class DlvBreakpointView(DlvView):
         if is_running():
             if len(requests) > 0:
                 get_worker().do_batch(requests)
+            if self.upgrade_breakpoints([], bkpts_error_del):
+                self.update_view()
         else:
             if self.upgrade_breakpoints(bkpts_add, bkpts_del):
                 self.update_view()
@@ -569,6 +648,8 @@ class DlvBreakpointView(DlvView):
         for bkpt in self.__breakpoints:
             requests.append({"cmd": get_const().CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
         requests.append({"cmd": get_const().CONTINUE_COMMAND, "parms": None})
+        if get_watch_view().is_watches_exist():
+            requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
         get_worker().do_batch(requests)
 
     def update_breakpoint_lines(self, view=None):
@@ -594,8 +675,8 @@ class DlvBreakpointView(DlvView):
         return got_changes
 
 class DlvStacktraceView(DlvView):
-    def __init__(self, const):
-        super(DlvStacktraceView, self).__init__(const.STACKTRACE_VIEW, "Delve Stacktrace", const)
+    def __init__(self, const, view):
+        super(DlvStacktraceView, self).__init__(const.STACKTRACE_VIEW, const, view)
         self.__locations = []
         self.__cursor_position = 0
 
@@ -606,7 +687,7 @@ class DlvStacktraceView(DlvView):
     def open(self, reset=False):
         super(DlvStacktraceView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
+            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -664,8 +745,8 @@ class DlvStacktraceView(DlvView):
         self.select_location()
 
 class DlvGoroutineView(DlvView):
-    def __init__(self, const):
-        super(DlvGoroutineView, self).__init__(const.GOROUTINE_VIEW, "Delve Gorounites", const)
+    def __init__(self, const, view):
+        super(DlvGoroutineView, self).__init__(const.GOROUTINE_VIEW, const, view)
         self.__goroutines = []
         self.__cursor_position = 0
         self.__current_goroutine_position = -1
@@ -681,7 +762,7 @@ class DlvGoroutineView(DlvView):
     def open(self, reset=False):
         super(DlvGoroutineView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
+            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -743,6 +824,8 @@ class DlvtVariableType(DlvObjectType):
         self.__expanded = False
         self.__line = 0
         self.__map_element = False
+        self.__uuid = None
+        self.__error_message = None
 
     def __getattr__(self, attr):
         if attr == "name" and self.__name is not None:
@@ -761,12 +844,34 @@ class DlvtVariableType(DlvObjectType):
         assert (self.__name is None)
         self.__name = name
 
+    def _set_error_message(self, error_message=None):
+        self.__error_message = error_message if error_message is not None else '<not available>'
+
+    def _reset_error_message(self):
+        self.__error_message = None        
+
     def _set_map_key(self, key):
         assert (self.__name is None)
         self.__name = key
         self.__map_element = True
 
+    @property
+    def _uuid(self):
+        if self.__uuid is None:
+            self.__uuid = uuid.uuid4()
+        return self.__uuid
+
+    def _is_loaded(self):
+        return hasattr(self, 'addr')
+
+    def _is_error(self):
+        return (self.__error_message != None)
+
     def _format(self, indent="", output="", line=0):
+        self.__line = line
+        line += 1
+        if self._is_error() or not self._is_loaded() or not is_running():
+            return ("%s = \"%s\"" % (self.name, self.__error_message if is_running() and self._is_error() else '<not available>'), line)
         icon = " "
         if self._has_children():
             if self.__expanded:
@@ -809,8 +914,6 @@ class DlvtVariableType(DlvObjectType):
         else:
             output += "%s%s%s: %s" % (indent, icon, self.name, suffix_val)
 
-        self.__line = line
-        line += 1
         indent += "    "
         if self.__expanded:
             for chld_var in self.__children:
@@ -878,34 +981,67 @@ class DlvtVariableType(DlvObjectType):
         return len(self.children) > 0
 
 class DlvVariableView(DlvView):
-    def __init__(self, const):
-        super(DlvVariableView, self).__init__(const.VARIABLE_VIEW, "Delve Variables", const)
+    def __init__(self, name, const, view=None):
+        super(DlvVariableView, self).__init__(name, const, view)
         self.__variables = []
+        if view is not None and view.settings().has('watches'):
+            assert (self.name == self.const.WATCH_VIEW)
+            for element in view.settings().get('watches'):
+                self.__variables.append(DlvtVariableType(name=element['exp']))
 
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
-            if reset:
+            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            if reset and self.name == self.const.VARIABLE_VIEW:
                 self.__variables = []                
             self.update_view()
 
     def clear(self, reset=False):
-        if reset:
+        if reset and self.name == self.const.VARIABLE_VIEW:
             self.__variables = []                
         super(DlvVariableView, self).clear(reset)
 
+    def find_watch_by_uuid(self, uuid):
+        assert (self.name == self.const.WATCH_VIEW)
+        for var in self.__variables:
+            if var._uuid == uuid:
+                return var
+        return None
+
     def load(self, variables):
         self.__variables = variables
+
+    def load_data(self, data):
+        assert (self.name == self.const.WATCH_VIEW)
+        for element in data:
+            if element['result']:
+                var = self.find_watch_by_uuid(element['id'])
+                if var is None:
+                    continue
+                cur_var = DlvtVariableType()
+                var._update(element['eval'])
+                var._reset_error_message()
+            else:
+                var = self.find_watch_by_uuid(element['parms']['id'])
+                if var is None:
+                    continue
+                if 'error_message' in element:
+                    var._set_error_message(element['error_message'])   
+                else:
+                    var._set_error_message()   
 
     def update_view(self):
         super(DlvVariableView, self).update_view()
         if not self.is_open():
             return
         line = 0
+        watches = []
         for var in self.__variables:
             output, line = var._format(line=line)
             self.add_line(output, ' ')
+            watches.append({"exp": var.name})
+        self.view.settings().set('watches', watches)
 
     def get_variable_at_line(self, line, var_list=None):
         if var_list is None:
@@ -924,7 +1060,7 @@ class DlvVariableView(DlvView):
         row, col = view.rowcol(view.sel()[0].a)
         if self.is_open() and view.id() == self.get_view_id():
             var = self.get_variable_at_line(row)
-            if var is not None and var._has_children():
+            if var is not None and not var._is_error() and var._has_children():
                 if toggle:
                     if var._is_expanded():
                         var._collapse()
@@ -937,32 +1073,39 @@ class DlvVariableView(DlvView):
                 self.update_view()
                 self.view.show_at_center(self.view.text_point(row,0))
 
-class DlvWatchView(DlvView):
-    def __init__(self, const):
-        super(DlvWatchView, self).__init__(const.WATCH_VIEW, "Delve Watches", const)
-        self.__watches = []
-
-    def open(self, reset=False):
-        super(DlvWatchView, self).open(reset)
-        if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/Go.tmLanguage")
-            if reset:
-                self.__watches = []                
+    def __edit_on_done(self, exp):
+        assert (self.name == self.const.WATCH_VIEW)
+        if exp.strip() == "":
+            return
+        var = DlvtVariableType(name=exp.strip())
+        self.__variables.append(var)
+        if is_running():
+            get_worker().do(self.const.WATCH_COMMAND, {"watches": [{"id": var._uuid, "expr": var.name}] })
+        else:
             self.update_view()
 
-    def update_view(self):
-        super(DlvWatchView, self).update_view()
-        if not self.is_open():
-            return
-
-    def __edit_on_done(self, exp):
-        pass
-
     def add_watch(self, view):
+        assert (self.name == self.const.WATCH_VIEW)
         sublime.active_window().show_input_panel('Delve add watch =', '', self.__edit_on_done, None, None)
 
     def remove_watch(self, view):
-        pass
+        assert (self.name == self.const.WATCH_VIEW)
+        row, col = view.rowcol(view.sel()[0].a)
+        if row < len(self.__variables):
+            var = self.__variables[row]
+            self.__variables.remove(var)
+            self.update_view()
+
+    def get_watches_as_parm(self):
+        assert (self.name == self.const.WATCH_VIEW)
+        response = []
+        for var in self.__variables:
+            response.append({"id": var._uuid, "expr": var.name})
+        return response
+
+    def is_watches_exist(self):
+        assert (self.name == self.const.WATCH_VIEW)
+        return (len(self.__variables) > 0)
 
 def clear_position():
     last_cursor_view = getp().last_cursor_view
@@ -1031,6 +1174,8 @@ class DlvClick(sublime_plugin.TextCommand):
             return
         if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
             get_variable_view().expand_collapse_variable(self.view, toggle=True)
+        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
+            get_watch_view().expand_collapse_variable(self.view, toggle=True)
         elif get_goroutine_view().is_open() and self.view.id() == get_goroutine_view().get_view_id():
             get_goroutine_view().select_goroutine(self.view)
         elif get_stacktrace_view().is_open() and self.view.id() == get_stacktrace_view().get_view_id():
@@ -1045,31 +1190,41 @@ class DlvDoubleClick(sublime_plugin.TextCommand):
             get_bkpt_view().select_breakpoint(self.view)
         if not is_running():
             return
-        if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
-            pass
+        # if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
+        #     pass
 
     def is_enabled(self):
         return is_plugin_enable()
 
 class DlvCollapseVariable(sublime_plugin.TextCommand):
     def run(self, edit):
-        get_variable_view().expand_collapse_variable(self.view, expand=False)
+        if self.view.id() == get_variable_view().get_view_id():
+            get_variable_view().expand_collapse_variable(self.view, expand=False)
+        else:
+            get_watch_view().expand_collapse_variable(self.view, expand=False)
 
     def is_enabled(self):
         if not is_running():
             return False
         if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
             return True
+        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
+            return True
         return False
 
 class DlvExpandVariable(sublime_plugin.TextCommand):
     def run(self, edit):
-        get_variable_view().expand_collapse_variable(self.view)
+        if self.view.id() == get_variable_view().get_view_id():
+            get_variable_view().expand_collapse_variable(self.view)
+        else:
+            get_watch_view().expand_collapse_variable(self.view)
 
     def is_enabled(self):
         if not is_running():
             return False
         if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
+            return True
+        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
             return True
         return False
 
@@ -1106,17 +1261,10 @@ class DlvEventListener(sublime_plugin.EventListener):
         elif key == "dlv_input_view":
             return getp().check_input_view(view)
         elif key.startswith("dlv_"):
-            v = get_variable_view()
-            if key.startswith("dlv_watch_view"):
-                v = get_watch_view()
-            # elif key.startswith("gdb_disassembly_view"):
-            #     v = gdb_disassembly_view
-            if key.endswith("open"):
-                return v.is_open() == operand
-            else:
-                if v.is_closed():
-                    return False == operand
-                return (view.id() == v.get_view_id()) == operand
+            v = get_variable_view() if (get_variable_view().get_view_id() == view.id()) else None
+            if v is None:
+                v = get_watch_view() if (get_watch_view().get_view_id() == view.id()) else None
+            return None if v is None else True == operand
         return None
 
     def on_activated(self, view):
@@ -1474,6 +1622,8 @@ class DlvRestart(sublime_plugin.WindowCommand):
         requests = []
         requests.append({"cmd": get_const().RESTART_COMMAND, "parms": None})
         requests.append({"cmd": get_const().CONTINUE_COMMAND, "parms": None})
+        if get_watch_view().is_watches_exist():
+            requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
         get_worker().do_batch(requests)
     
     def is_enabled(self):

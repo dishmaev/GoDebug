@@ -7,6 +7,7 @@ class DlvConst(object):
         self.__panel_group_suffix = "group"
         self.__open_at_start_suffix = "open_at_start"
         self.__close_at_stop_suffix = "close_at_stop"
+        self.__title_suffix = "title"
         self.__project_exec_suffix = "executables"
         self.__project_exec_settings = {}
         self.__project_exec_name = None
@@ -15,43 +16,50 @@ class DlvConst(object):
             { 
                 self.__panel_group_suffix: self.__get_stacktrace_group,     
                 self.__open_at_start_suffix: self.__get_stacktrace_open_at_start,     
-                self.__close_at_stop_suffix: self.__get_stacktrace_close_at_stop
+                self.__close_at_stop_suffix: self.__get_stacktrace_close_at_stop,
+                self.__title_suffix: self.__get_stacktrace_title
             },
             self.GOROUTINE_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_goroutine_group,     
                 self.__open_at_start_suffix: self.__get_goroutine_open_at_start,   
-                self.__close_at_stop_suffix: self.__get_goroutine_close_at_stop
+                self.__close_at_stop_suffix: self.__get_goroutine_close_at_stop,
+                self.__title_suffix: self.__get_goroutine_title
             },
             self.VARIABLE_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_variable_group,     
                 self.__open_at_start_suffix: self.__get_variable_open_at_start,   
-                self.__close_at_stop_suffix: self.__get_variable_close_at_stop
+                self.__close_at_stop_suffix: self.__get_variable_close_at_stop,
+                self.__title_suffix: self.__get_variable_title
             },
             self.WATCH_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_watch_group,     
                 self.__open_at_start_suffix: self.__get_watch_open_at_start,   
-                self.__close_at_stop_suffix: self.__get_watch_close_at_stop
+                self.__close_at_stop_suffix: self.__get_watch_close_at_stop,
+                self.__title_suffix: self.__get_watch_title
             },
             self.SESSION_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_session_group,     
                 self.__open_at_start_suffix: self.__get_session_open_at_start,   
-                self.__close_at_stop_suffix: self.__get_session_close_at_stop
+                self.__close_at_stop_suffix: self.__get_session_close_at_stop,
+                self.__title_suffix: self.__get_session_title
             },
             self.CONSOLE_VIEW:     
             { 
                 self.__panel_group_suffix: self.__get_console_group,     
                 self.__open_at_start_suffix: self.__get_console_open_at_start,    
-                self.__close_at_stop_suffix: self.__get_console_close_at_stop
+                self.__close_at_stop_suffix: self.__get_console_close_at_stop,
+                self.__title_suffix: self.__get_console_title
             },
-            self.BREAKPOINTS_VIEW: 
+            self.BREAKPOINT_VIEW: 
             { 
-                self.__panel_group_suffix: self.__get_breakpoints_group, 
-                self.__open_at_start_suffix: self.__get_breakpoints_open_at_start, 
-                self.__close_at_stop_suffix: self.__get_breakpoints_close_at_stop
+                self.__panel_group_suffix: self.__get_breakpoint_group, 
+                self.__open_at_start_suffix: self.__get_breakpoint_open_at_start, 
+                self.__close_at_stop_suffix: self.__get_breakpoint_close_at_stop,
+                self.__title_suffix: self.__get_breakpoint_title
             }, 
         }
 
@@ -177,6 +185,10 @@ class DlvConst(object):
         return self.__close_at_stop_suffix
 
     @property
+    def TITLE(self):
+        return self.__title_suffix
+
+    @property
     def STDOUT(self):
         return 'stdout'
 
@@ -284,6 +296,10 @@ class DlvConst(object):
     def __get_stacktrace_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.STACKTRACE_VIEW, self.__close_at_stop_suffix), True)
 
+    # View title
+    def __get_stacktrace_title(self):
+        return self.__get_settings("%s_%s" % (self.STACKTRACE_VIEW, self.__title_suffix), 'Delve Stacktrace')
+
     # View name
     @property
     def GOROUTINE_VIEW(self):
@@ -300,6 +316,10 @@ class DlvConst(object):
     # Close view when debugging stops
     def __get_goroutine_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.GOROUTINE_VIEW, self.__close_at_stop_suffix), True)
+
+    # View title
+    def __get_goroutine_title(self):
+        return self.__get_settings("%s_%s" % (self.GOROUTINE_VIEW, self.__title_suffix), 'Delve Gorounites')
 
     # View name
     @property
@@ -318,6 +338,10 @@ class DlvConst(object):
     def __get_variable_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.VARIABLE_VIEW, self.__close_at_stop_suffix), True)
 
+    # View title
+    def __get_variable_title(self):
+        return self.__get_settings("%s_%s" % (self.VARIABLE_VIEW, self.__title_suffix), 'Delve Variables')
+
     # View name
     @property
     def WATCH_VIEW(self):
@@ -334,6 +358,10 @@ class DlvConst(object):
     # Close view when debugging stops
     def __get_watch_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.WATCH_VIEW, self.__close_at_stop_suffix), False)
+
+    # View title
+    def __get_watch_title(self):
+        return self.__get_settings("%s_%s" % (self.WATCH_VIEW, self.__title_suffix), 'Delve Watches')
 
     # View name
     @property
@@ -352,6 +380,10 @@ class DlvConst(object):
     def __get_session_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.SESSION_VIEW, self.__close_at_stop_suffix), True)
 
+    # View title
+    def __get_session_title(self):
+        return self.__get_settings("%s_%s" % (self.SESSION_VIEW, self.__title_suffix), 'Delve Session')
+
     # View name
     @property
     def CONSOLE_VIEW(self):
@@ -369,19 +401,27 @@ class DlvConst(object):
     def __get_console_close_at_stop(self):
         return self.__get_settings("%s_%s" % (self.CONSOLE_VIEW, self.__close_at_stop_suffix), True)
 
+    # View title
+    def __get_console_title(self):
+        return self.__get_settings("%s_%s" % (self.CONSOLE_VIEW, self.__title_suffix), 'Delve Console')
+
     # View name
     @property
-    def BREAKPOINTS_VIEW(self):
+    def BREAKPOINT_VIEW(self):
         return "breakpoints"
 
     # View group in Delve panel
-    def __get_breakpoints_group(self):
-        return self.__get_settings("%s_%s" % (self.BREAKPOINTS_VIEW, self.__panel_group_suffix), 3)
+    def __get_breakpoint_group(self):
+        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__panel_group_suffix), 3)
 
     # Open view when debugging starts
-    def __get_breakpoints_open_at_start(self):
-        return self.__get_settings("%s_%s" % (self.BREAKPOINTS_VIEW, self.__open_at_start_suffix), True)
+    def __get_breakpoint_open_at_start(self):
+        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__open_at_start_suffix), True)
 
         # Close view when debugging stops
-    def __get_breakpoints_close_at_stop(self):
-        return self.__get_settings("%s_%s" % (self.BREAKPOINTS_VIEW, self.__close_at_stop_suffix), False)
+    def __get_breakpoint_close_at_stop(self):
+        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__close_at_stop_suffix), False)
+
+    # View title
+    def __get_breakpoint_title(self):
+        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__title_suffix), 'Delve Breakpoints')

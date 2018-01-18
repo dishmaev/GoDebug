@@ -28,3 +28,6 @@ class DlvObjectType(object):
         if type(data) != dict or name not in data:
             raise TypeError("Wrong data type for update %s" % name)
         self._kwargs.update(data[name])
+
+    def _is_loaded(self):
+        return False
