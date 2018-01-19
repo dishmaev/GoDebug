@@ -42,9 +42,10 @@ def __get_stacktrace_parms(goroutine_id):
     return {"Id": goroutine_id, "Depth": 20, "Full": False, "Cfg": __default_cfg()}
 
 def __get_current_goroutine(response):
-    if 'State' in response:
-        if  not response['State']['exited'] and 'currentThread' in response['State']:
-            return response['State']['currentThread']['goroutineID']
+    if type(response) is dict:
+        if 'State' in response:
+            if  not response['State']['exited'] and 'currentThread' in response['State']:
+                return response['State']['currentThread']['goroutineID']
     return None
 
 def __get_error_response(cmd, parms):
@@ -53,7 +54,7 @@ def __get_error_response(cmd, parms):
 def __get_error_response_ex(cmd, parms, e):
     return {"cmd": cmd, "parms": parms, "result": False, "error_code": e.code, "error_message": e.message}
 
-def _do_method(alive, queue, prj, worker_callback=None):
+def __do_method(alive, queue, prj, worker_callback=None):
     const = prj.const
     logger = prj.logger
     connect = JsonRpcTcpClient(const, logger)
@@ -180,7 +181,7 @@ class DlvWorker(object):
         self.__stoped = False
         self.__queue = queue.Queue()
         t = threading.Thread(name='worker', 
-                      target=_do_method,
+                      target=__do_method,
                       args=(self.__alive, self.__queue, self.__prj, self.__worker_callback))
         t.start()
 

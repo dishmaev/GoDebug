@@ -14,8 +14,8 @@ class DlvObjectType(object):
     @property
     def _as_parm(self):
         response = {}
-        response[self._object_name] = {}
-        response[self._object_name].update(self._kwargs)
+        response[self.__object_name] = {}
+        response[self.__object_name].update(self._kwargs)
         return response
 
     @property

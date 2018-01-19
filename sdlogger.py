@@ -19,9 +19,6 @@ class DlvLogger(object):
                 'critical': self.__log.critical 
                 }
 
-    def is_started(self):
-        return self.__started
-
     def start(self, file):
         if self.__started:
             if self.__file == file:
