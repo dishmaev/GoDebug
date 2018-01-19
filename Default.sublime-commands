@@ -46,6 +46,10 @@
         "command": "dlv_restart"
     },
     {   
+        "caption": "SublimeDelve: Cancel next",
+        "command": "dlv_cancel_next"
+    },
+    {   
         "caption": "SublimeDelve: Enable",
         "command": "dlv_enable"
     },
@@ -64,10 +68,6 @@
     {
         "caption": "SublimeDelve: Open Goroutinies View",
         "command": "dlv_open_goroutine_view"
-    },
-    {
-        "caption": "SublimeDelve: Open Session View",
-        "command": "dlv_open_session_view"
     },
     {
         "caption": "SublimeDelve: Open Console View",

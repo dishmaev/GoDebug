@@ -19,7 +19,8 @@ def __start(connect, const, logger):
 
 def __stop(connect, const, logger):
     try:
-        connect._close()
+        if connect._is_open():
+            connect._close()
     except:
         traceback.print_exc(file=(sys.stdout if logger.get_file() == const.STDOUT else open(logger.get_file(),"a")))
         logger.error("Exception thrown, details in file: %s" % logger.get_file())
@@ -38,7 +39,7 @@ def __get_eval_parms(goroutine_id, expr):
     return {"Scope": {"GoroutineID": goroutine_id}, "Expr": expr, "Cfg": __default_cfg()}
 
 def __get_stacktrace_parms(goroutine_id):
-    return {"Id": goroutine_id, "Depth": 20, "Full": True, "Cfg": __default_cfg()}
+    return {"Id": goroutine_id, "Depth": 20, "Full": False, "Cfg": __default_cfg()}
 
 def __get_current_goroutine(response):
     if 'State' in response:
@@ -52,7 +53,9 @@ def __get_error_response(cmd, parms):
 def __get_error_response_ex(cmd, parms, e):
     return {"cmd": cmd, "parms": parms, "result": False, "error_code": e.code, "error_message": e.message}
 
-def _do_method(alive, queue, const, logger, worker_callback=None):
+def _do_method(alive, queue, prj, worker_callback=None):
+    const = prj.const
+    logger = prj.logger
     connect = JsonRpcTcpClient(const, logger)
     if __start(connect, const, logger):
         alive.set()
@@ -72,15 +75,13 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                 if parms is None:
                     parms = {}
                 try:
-                    if cmd == const.CONTINUE_COMMAND or \
-                        cmd == const.NEXT_COMMAND or \
-                        cmd == const.STEP_COMMAND or \
-                        cmd == const.STEPOUT_COMMAND:
+                    if cmd in const.RUNTIME_COMMANDS:
                         parms['name'] = cmd
                         response = connect.RPCServer.Command(parms)
                         goroutine_id = __get_current_goroutine(response)
                     elif cmd == const.STATE_COMMAND:
-                        breakpoints = True
+                        if not breakpoints:
+                            breakpoints = True
                         if errors:
                             errors = False
                         response = connect.RPCServer.State(parms)
@@ -88,13 +89,22 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                     elif cmd == const.CREATE_BREAKPOINT_COMMAND:
                         response = connect.RPCServer.CreateBreakpoint(parms)
                     elif cmd == const.CLEAR_BREAKPOINT_COMMAND:
-                        response = connect.RPCServer.ClearBreakpoint(parms)
+                        response = connect.RPCServer.ClearBreakpoint({"Id": parms['bkpt_id'], "Name": parms['bkpt_name']})
                     elif cmd == const.RESTART_COMMAND:
                         response = connect.RPCServer.Restart(parms)
+                    elif cmd == const.CANCEL_NEXT_COMMAND:
+                        parms = {}
+                        response = connect.RPCServer.CancelNext(parms)
                     elif cmd == const.STACKTRACE_COMMAND:
-                        response = connect.RPCServer.Stacktrace(__get_stacktrace_parms(parms['id']))
+                        response = connect.RPCServer.Stacktrace(__get_stacktrace_parms(parms['goroutine_id']))
                     elif cmd == const.WATCH_COMMAND:
                         watches = parms['watches']
+                        if parms['goroutine_id'] is not None:
+                            goroutine_id = parms['goroutine_id']
+                        continue  
+                    elif cmd == const.BREAKPOINT_COMMAND:
+                        if not breakpoints:
+                            breakpoints = True
                         continue  
                     else:
                         raise ValueError("Unknown worker command: %s" % cmd)
@@ -133,7 +143,7 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                         cmd = const.BREAKPOINT_COMMAND
                         response_breakpoints = connect.RPCServer.ListBreakpoints(parms)
                         responses.append({"cmd": cmd, "result": True, "response": response_breakpoints})
-                    responses.append({"cmd": const.GOROUTINE_COMMAND, "result": True, "response": response_goroutines, "id": goroutine_id})
+                    responses.append({"cmd": const.GOROUTINE_COMMAND, "result": True, "response": response_goroutines, "current_goroutine_id": goroutine_id})
                 except JsonRpcTcpProtocolError as e:
                     responses.append(__get_error_response_ex(cmd, parms, e))
                     errors = True
@@ -144,9 +154,9 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
                     cmd == const.WATCH_COMMAND
                     response_watches = []
                     for element in watches:
-                        parms['id'] = element['id']
+                        parms['watch_id'] = element['watch_id']
                         try:
-                            response_watches.append({"id": element['id'], "result": True, "eval": connect.RPCServer.Eval(__get_eval_parms(goroutine_id, element['expr']))})
+                            response_watches.append({"watch_id": element['watch_id'], "result": True, "eval": connect.RPCServer.Eval(__get_eval_parms(goroutine_id, element['expr']))})
                         except JsonRpcTcpProtocolError as e:
                             response_watches.append(__get_error_response_ex(cmd, parms, e))
                         except:
@@ -155,13 +165,12 @@ def _do_method(alive, queue, const, logger, worker_callback=None):
 
             if worker_callback is not None:
                 # callback
-                sublime.set_timeout(worker_callback(responses), 0)
+                sublime.set_timeout(worker_callback(prj, responses), 0)
     __stop(connect, const, logger)
 
 class DlvWorker(object):
-    def __init__(self, const, logger, worker_callback = None):
-        self.__const = const
-        self.__logger = logger
+    def __init__(self, prj, worker_callback = None):
+        self.__prj = prj
         self.__worker_callback = worker_callback
         self.__alive = threading.Event()
         self.__queue = None
@@ -172,7 +181,7 @@ class DlvWorker(object):
         self.__queue = queue.Queue()
         t = threading.Thread(name='worker', 
                       target=_do_method,
-                      args=(self.__alive, self.__queue, self.__const, self.__logger, self.__worker_callback))
+                      args=(self.__alive, self.__queue, self.__prj, self.__worker_callback))
         t.start()
 
     def stop(self):
@@ -184,14 +193,15 @@ class DlvWorker(object):
         self.do_batch([{"cmd": cmd, "parms": parms}])
 
     def do_batch(self, requests):
+        logger = self.__prj.logger
         if not self.__alive.isSet():
-            self.__logger.warning("Worker still not started, put job to queue")         
+            logger.warning("Worker not started, put requests to the queue")         
             if self.__stoped:
                 self.__start()
         if type(requests) is not list:
-            self.__logger.error("Wrong requests type %s on worker call, list expected" % type(requests))
+            logger.error("Wrong requests type %s on worker call, list expected" % type(requests))
             return
-        if len(requests) == 0:
-            self.__logger.error("Call worker with empty request")
+        elif len(requests) == 0:
+            logger.error("Call worker with empty request")
             return
         self.__queue.put(requests)

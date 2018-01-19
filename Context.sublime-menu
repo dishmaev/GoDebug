@@ -12,6 +12,7 @@
         { "command": "dlv_step_out", "caption": "Step Out" },
         { "command": "dlv_stop", "caption": "Stop"},
         { "command": "dlv_restart", "caption": "Restart"},
+        { "command": "dlv_cancel_next", "caption": "Cancel next"},
         { "caption": "-", "id": "dlv_views" },
         {
             "caption": "Open Breakpoint View",
@@ -24,10 +25,6 @@
         {
             "caption": "Open Goroutinies View",
             "command": "dlv_open_goroutine_view"
-        },
-        {
-            "caption": "Open Session View",
-            "command": "dlv_open_session_view"
         },
         {
             "caption": "Open Console View",

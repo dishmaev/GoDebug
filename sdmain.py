@@ -22,7 +22,9 @@ dlv_project = {}
 
 class DlvProject(object):
     def __init__(self, window):
+        self.window = window
         self.const = DlvConst()
+        self.logger = DlvLogger(self.const)
 
         self.cursor = ''
         self.cursor_position = 0
@@ -36,51 +38,52 @@ class DlvProject(object):
         self.command_history = []
         self.command_history_pos = 0
 
-        self.client_subprocess = None
-        self.server_subprocess = None
+        self.next_in_progress = False
 
-        log = DlvLogger(self.const)
-        self.logger = log
-        self.worker = DlvWorker(self.const, log, worker_callback)
-        
-        self.session_view = self.__initialize_view(window, self.const.SESSION_VIEW)
-        self.console_view = self.__initialize_view(window, self.const.CONSOLE_VIEW)
-        self.stacktrace_view = self.__initialize_view(window, self.const.STACKTRACE_VIEW)
-        self.goroutine_view = self.__initialize_view(window, self.const.GOROUTINE_VIEW)
-        self.variable_view = self.__initialize_view(window, self.const.VARIABLE_VIEW)
-        self.watch_view = self.__initialize_view(window, self.const.WATCH_VIEW)
-        self.bkpt_view = self.__initialize_view(window, self.const.BREAKPOINT_VIEW)
+        self.__session_proc = None
+        self.__session_send_signal = False
+        self.__server_proc = None
+
+        self.session_view = self.__initialize_view(self.const.SESSION_VIEW)
+        self.console_view = self.__initialize_view(self.const.CONSOLE_VIEW)
+        self.stacktrace_view = self.__initialize_view(self.const.STACKTRACE_VIEW)
+        self.goroutine_view = self.__initialize_view(self.const.GOROUTINE_VIEW)
+        self.variable_view = self.__initialize_view(self.const.VARIABLE_VIEW)
+        self.watch_view = self.__initialize_view(self.const.WATCH_VIEW)
+        self.bkpt_view = self.__initialize_view(self.const.BREAKPOINT_VIEW)
+
+        self.worker = DlvWorker(self, worker_callback)
 
     def get_views(self):
        return [self.session_view, self.variable_view, self.watch_view, self.stacktrace_view, self.bkpt_view, self.goroutine_view]
 
-    def __initialize_view(self, window, name):
+    def __initialize_view(self, name):
         view = None
-        for v in window.views():
+        for v in self.window.views():
             if v.name() == self.const.get_view_setting(name, self.const.TITLE):
                 view = v
         if name == self.const.SESSION_VIEW:
-            return DlvView(name, self.const, view, True)
+            return DlvSessionView(self, view)
         elif name == self.const.CONSOLE_VIEW:
-            return DlvView(name, self.const, view, True)
+            return DlvConsoleView(self, view)
         elif name == self.const.STACKTRACE_VIEW:
-            return DlvStacktraceView(self.const, view)
+            return DlvStacktraceView(self, view)
         elif name == self.const.GOROUTINE_VIEW:
-            return DlvGoroutineView(self.const, view)
+            return DlvGoroutineView(self, view)
         elif name == self.const.VARIABLE_VIEW:
-            return DlvVariableView(name, self.const)
+            return DlvVariableView(name, self, view)
         elif name == self.const.WATCH_VIEW:
-            return DlvVariableView(name, self.const, view)
+            return DlvVariableView(name, self, view)
         elif name == self.const.BREAKPOINT_VIEW:
-            return DlvBreakpointView(self.const, view)
+            return DlvBreakpointView(self, view)
 
     def reset_cursor(self):
         self.cursor = ''
         self.cursor_position = 0
-        self.last_cursor_view = None
+        self.next_in_progress = False
 
     def panel_on_start(self):
-        self.panel_window = sublime.active_window()
+        self.panel_window = self.window
         self.panel_layout = self.panel_window.get_layout()
         self.panel_view = self.panel_window.active_view()
         self.panel_window.set_layout(self.const.PANEL_LAYOUT)
@@ -92,121 +95,294 @@ class DlvProject(object):
     def check_input_view(self, view):
         return self.input_view is not None and view.id() == self.input_view.id()
 
-def is_project_file_exists():
-    return sublime.active_window().project_file_name() is not None
+    def set_input(edit, text):
+        self.input_view.erase(edit, sublime.Region(0, self.input_view.size()))
+        self.input_view.insert(edit, 0, text)
 
-def is_plugin_enable():
-    window = sublime.active_window()
-    if is_project_file_exists() and 'settings' in window.project_data():
-        settings = window.project_data()['settings']
-        if 'delve_enable' in settings and settings['delve_enable']:
-            key = window.id()
-            if not key in dlv_project:
-                dlv_project[key] = DlvProject(window)
-            return True
-    return False
+    def show_input(self):
+        self.command_history_pos = len(self.command_history)
+        self.input_view = self.window.show_input_panel("Delve command", "", self.input_on_done, self.input_on_change, self.input_on_cancel)
 
-def getp():
-    return dlv_project[sublime.active_window().id()]
+    def input_on_done(self, s):
+        if not self.is_running():
+            message = "Delve session not found, need to start debugging"
+            self.logger.debug(message)
+            set_status_message(message)
+            return
 
-def get_const():
-    return getp().const
+        if s.strip() != "quit" and s.strip() != "exit" and s.strip() != "q":
+            self.command_history.append(s)
+            self.show_input()
+        
+        self.run_input_cmd(s)
 
-def get_logger():
-    return getp().logger
+    def input_on_cancel(self):
+        pass
 
-def get_worker():
-    return getp().worker
+    def input_on_change(self, s):
+        pass
 
-def get_session_view():
-    return getp().session_view
+    def run_input_cmd(self, cmd):
+        if isinstance(cmd, list):
+            for c in cmd:
+                self.run_input_cmd(c)
+            return
+        elif cmd.strip() == "":
+            return
+        message = "Input command: %s" % cmd
+        self.session_view.add_line(message)
+        self.logger.info(message)
+        try:
+            self.__session_proc.stdin.write(cmd + '\n')
+            self.__session_proc.stdin.flush()
+        except:
+            traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+            self.logger.error("Exception thrown, details in file: %s" % self.logger.get_file())
+        requests = []
+        requests.append({"cmd": self.const.STATE_COMMAND, "parms": None})
+        self.add_watch_request(requests)
+        self.worker.do_batch(requests)
 
-def get_console_view():
-    return getp().console_view
+    def is_running(self):
+        return self.__session_proc is not None and self.__session_proc.poll() is None
 
-def get_stacktrace_view():
-    return getp().stacktrace_view
+    def is_server_running(self):
+        return self.__server_proc is not None and self.__server_proc.poll() is None
 
-def get_goroutine_view():
-    return getp().goroutine_view
+    def terminate_session(self, send_sigint=False):
+        if self.is_running():
+            try:
+                if send_sigint:
+                    self.logger.debug('Send to session subprocess SIGINT signal')
+                    self.__session_proc.send_signal(signal.SIGINT)
+                else:
+                    self.logger.debug('Send to session subprocess SIGTERM signal')
+                    self.__session_proc.send_signal(signal.SIGTERM)
+            except:
+                traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+                self.logger.error("Exception thrown (terminate_session), details in file: %s" % self.logger.get_file())
+        if self.is_server_running():
+            try:
+                if send_sigint:
+                    self.logger.debug('Send to server subprocess SIGINT signal')
+                    self.__server_proc.send_signal(signal.SIGINT)
+                else:
+                    self.logger.debug('Send to server subprocess SIGTERM signal')
+                    self.__server_proc.send_signal(signal.SIGTERM)
+            except:
+                traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+                self.logger.error("Exception thrown (terminate_session), details in file: %s" % self.logger.get_file())
 
-def get_variable_view():
-    return getp().variable_view
+    def terminate_server(self):
+        if self.is_server_running():
+            try:
+                self.logger.debug('Send to server subprocess SIGINT signal')
+                self.__server_proc.send_signal(signal.SIGINT)
+            except:
+                traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+                self.logger.error("Exception thrown (terminate_server), details in file: %s" % self.logger.get_file())
+                self.logger.debug('Send to server subprocess SIGKILL signal')
+                self.__server_proc.kill()
+                self.logger.error("Delve server killed after timeout")
+        v = self.console_view
+        if v.is_open():
+            if v.is_close_at_stop():
+                v.close()
+                self.logger.debug("Closed console view")
+            else:
+                v.clear(True)
 
-def get_watch_view():
-    return getp().watch_view
+        if self.console_view.is_open():
+            self.console_view.close()
 
-def get_bkpt_view():
-    return getp().bkpt_view
+    def cleanup_session(self):
+        v = self.console_view
+        if v.is_open():
+            if v.is_close_at_stop():
+                v.close()
+            else:
+                v.clear(True)
+        for v in self.get_views():
+            if v.is_open():
+                if v.is_close_at_stop():
+                    v.close()
+                else:
+                    v.clear(True)
+        self.panel_on_stop()
+        self.logger.debug("Closed required debugging views")
+        if self.const.is_project_executable():
+            self.const.clear_project_executable()
+            self.logger.debug("Cleared project executable settings")
+        self.worker.stop()
+        self.logger.stop()
+        self.clear_position()
+        self.reset_cursor()
 
-def get_views():
-    return getp().get_views()
+    def __open_subprocess(self, cmd, cwd=None):
+        return subprocess.Popen(cmd, shell=False, cwd=cwd, universal_newlines=True,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-def __open_subprocess(cmd, cwd=None):
-    return subprocess.Popen(cmd, shell=False, cwd=cwd, universal_newlines=True,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def load_session_subprocess(self, cmd_session):
+        message = "Delve session started with command: %s" % " ".join(cmd_session)
+        self.logger.info(message)
+        self.session_view.add_line(message)
+        try:
+            self.__session_proc = self.__open_subprocess(cmd_session)
+        except:
+            traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+            self.logger.error("Exception thrown, details in file: %s" % self.logger.get_file())
+            self.logger.error(message)
+            set_status_message(message)
+            if self.is_local_mode():
+                self.terminate_server()
+            else:
+                self.cleanup_session()
+            return             
+        self.reset_cursor()
+        t = threading.Thread(target=self.dlv_output, args=(self.__session_proc.stdout,))
+        t.start()
+        t = threading.Thread(target=self.dlv_output, args=(self.__session_proc.stderr,))
+        t.start()
 
-def open_client_subprocess(cmd):
-    proc = __open_subprocess(cmd)
-    getp().client_subprocess = proc
-    return proc
+    def load_server_subprocess(self, cmd_server, cmd_session, cwd):
+        set_status_message("Starts Delve server, wait...")
+        message = "Delve server started with command: %s" % " ".join(cmd_server)
+        self.logger.info(message)
+        self.logger.debug("In directory: %s" % cwd)            
+        self.console_view.add_line(message)
+        try:
+            self.__server_proc = self.__open_subprocess(cmd_server, cwd)
+        except:
+            traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+            message = "Exception thrown, details in file: %s" % self.logger.get_file()
+            self.logger.error(message)
+            set_status_message(message)
+            self.terminate_server()
+            self.cleanup_session()
+            return             
+        t = threading.Thread(target=self.dlv_output, args=(self.__server_proc.stdout, cmd_session))
+        t.start()
+        t = threading.Thread(target=self.dlv_output, args=(self.__server_proc.stderr,))
+        t.start()
 
-def open_server_subprocess(cmd, cwd):
-    proc = __open_subprocess(cmd, cwd)
-    getp().server_subprocess = proc
-    return proc
+    def dlv_output(self, pipe, cmd_session=None):
+        started_session = False
+        # reaesc = re.compile(r'\x1b[^m]*m')
+        reaesc = re.compile(r'\x1b\[[\d;]*m')
 
-def get_client_proc():
-    return getp().client_subprocess
+        if self.__session_proc is not None and pipe == self.__session_proc.stdout:
+            sublime.set_timeout(self.show_input, 0)
+            self.logger.debug("Input field is ready")
+            sublime.set_timeout(self.bkpt_view.sync_breakpoints, 0)
+            sublime.set_timeout(set_status_message("Delve session started"), 0)
 
-def get_server_proc():
-    return getp().server_subprocess
+        while True:
+            try:
+                line = pipe.readline()
+                if len(line) == 0:
+                    if self.is_local_mode() and self.__server_proc is not None:
+                        if pipe in [self.__server_proc.stdout, self.__server_proc.stderr]:
+                            self.logger.error("Broken %s pipe of the Delve server" % \
+                                ("stdout" if pipe == self.__server_proc.stdout else "stderr"))
+                            break
+                    if self.__session_proc is not None and self.__session_proc.stdout is not None:
+                        self.logger.error("Broken %s pipe of the Delve session" % \
+                            ("stdout" if pipe == self.__session_proc.stdout else "stderr"))
+                    break
+                else:
+                    line = reaesc.sub('', line)
+                    line = line.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", "\t")
+    #                line = line.replace('\n', '') #alternative of line above
+                    if line.startswith("(dlv)"):
+                        line = line.replace("(dlv)", "")
+                    line = line.strip()
+                    if len(line) == 0:
+                        continue
+                if self.__session_proc is not None:
+                    if pipe == self.__session_proc.stdout:
+                        self.session_view.add_line(line)
+                        self.logger.info("Session stdout: " + line)
+                    elif pipe == self.__session_proc.stderr:
+                        self.session_view.add_line(line)
+                        self.logger.error("Session stderr: " + line)
+                if self.__server_proc is not None:
+                    if pipe == self.__server_proc.stdout:
+                        self.console_view.add_line(line)
+                        self.logger.info("Server stdout: " + line)
+                        if not started_session:
+                            self.logger.debug("Delve server is working, try to start Delve Session")
+                            lock = threading.RLock()
+                            lock.acquire()
+                            sublime.set_timeout(self.load_session_subprocess(cmd_session), 0)
+                            started_session = True
+                            lock.release()
+                    elif pipe == self.__server_proc.stderr:
+                        self.console_view.add_line(line)
+                        self.logger.error("Server stderr: " + line)
+            except:
+                traceback.print_exc(file=(sys.stdout if self.logger.get_file() == self.const.STDOUT else open(self.logger.get_file(),"a")))
+                self.logger.error("Exception thrown, details in file: %s" % self.logger.get_file())
+
+        if self.__session_proc is not None and pipe == self.__session_proc.stdout:
+            message = "Delve session closed"
+            sublime.set_timeout(set_status_message(message), 0)
+            self.logger.info(message)
+            # sublime.set_timeout(self.terminate_server, 0)
+        if self.__server_proc is not None and pipe == self.__server_proc.stdout:
+            self.logger.info("Delve server closed")
+            sublime.set_timeout(self.terminate_session, 0)
+        if (not self.is_local_mode() and self.__session_proc is not None and pipe == self.__session_proc.stdout) or \
+                    (self.is_local_mode() and self.__server_proc is not None and pipe == self.__server_proc.stdout):
+            sublime.set_timeout(self.cleanup_session, 0)
+
+    def clear_position(self):
+        if self.last_cursor_view is not None:
+            region = self.last_cursor_view.get_regions("dlv.suspend_pos")
+            if region is None or len(region) == 0:
+                self.last_cursor_view = None
+                return
+            assert (len(region) == 1)
+            row, col = self.last_cursor_view.rowcol(region[0].a)
+            bkpt = self.bkpt_view.find_breakpoint(self.last_cursor_view.file_name(), row + 1)
+            self.last_cursor_view.erase_regions("dlv.suspend_pos")
+            if bkpt is not None:
+                bkpt._show(self.is_running(), self.last_cursor_view)
+            self.last_cursor_view = None
+
+    def update_position(self, view):
+        self.clear_position()
+        if self.is_running() and self.cursor == view.file_name() and self.cursor_position != 0:
+            bkpt = self.bkpt_view.find_breakpoint(self.cursor, self.cursor_position)
+            if bkpt is not None:
+                bkpt._hide(view)
+            view.add_regions("dlv.suspend_pos", [view.line(view.text_point(self.cursor_position - 1, 0))], \
+                "entity.name.class", "bookmark", sublime.HIDDEN)
+            self.last_cursor_view = view
+
+    def add_watch_request(self, requests):
+        if self.watch_view.is_watches_exist():
+            requests.append({"cmd": self.const.WATCH_COMMAND, "parms": {"watches": self.watch_view.get_watches_as_parm(), "goroutine_id": None}})
+
+    def is_local_mode(self):
+        return self.const.MODE in [self.const.DEBUG_MODE, self.const.TEST_MODE]
+
+    def is_next_enabled(self):
+        assert (self.is_running())
+        return not self.next_in_progress
+
+def is_project_file_exists(window):
+    return window.project_file_name() is not None
+
+def is_equal(first, second):
+    return first.id == second.id
+
+def set_status_message(message):
+    sublime.status_message(message)
 
 def normalize(file):
     if file is None:
         return None
     return os.path.abspath(os.path.normcase(file))
-
-def set_input(edit, text):
-    view = getp().input_view
-    view.erase(edit, sublime.Region(0, view.size()))
-    view.insert(edit, 0, text)
-
-def show_input():
-    project = getp()
-    project.command_history_pos = len(project.command_history)
-    project.input_view = sublime.active_window().show_input_panel("Delve command", "", input_on_done, input_on_change, input_on_cancel)
-
-def input_on_done(s):
-    if not is_running():
-        message = "Delve session not found, need to start debugging"
-        get_logger().debug(message)
-        sublime.status_message(message)
-        return
-
-    if s.strip() != "quit" and s.strip() != "exit" and s.strip() != "q":
-        getp().command_history.append(s)
-        show_input()
-    
-    run_input_cmd(s)
-
-def input_on_cancel():
-    pass
-
-def input_on_change(s):
-    pass
-
-def is_running():
-    proc =None
-    key = sublime.active_window().id()
-    if key in dlv_project:
-        project = dlv_project[key]
-        proc = project.client_subprocess
-    return proc is not None and proc.poll() is None
-
-def is_server_running():
-    proc = get_server_proc()
-    return proc is not None and proc.poll() is None
 
 def is_gosource(s):
     if s is None:
@@ -217,34 +393,22 @@ def is_gosource(s):
     else:
         return False
 
-def is_local_mode():
-    return get_const().MODE in [get_const().MODE_DEBUG, get_const().MODE_TEST]
+def is_plugin_enable():
+    window = sublime.active_window()
+    if is_project_file_exists(window) and 'settings' in window.project_data():
+        settings = window.project_data()['settings']
+        if 'delve_enable' in settings and settings['delve_enable']:
+            key = window.id()
+            if not key in dlv_project:
+                dlv_project[key] = DlvProject(window)
+            return True, dlv_project[key]
+    return False, None
 
-def run_input_cmd(cmd):
-    if isinstance(cmd, list):
-        for c in cmd:
-            run_input_cmd(c)
-        return
-    elif cmd.strip() == "":
-        return
-    message = "Input command: %s" % cmd
-    get_session_view().add_line(message)
-    get_logger().info(message)
-    try:
-        proc = get_client_proc()
-        proc.stdin.write(cmd + '\n')
-        proc.stdin.flush()
-    except:
-        traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-        get_logger().error("Exception thrown, details in file: %s" % get_logger().get_file())
-    requests = []
-    requests.append({"cmd": get_const().STATE_COMMAND, "parms": None})
-    if get_watch_view().is_watches_exist():
-        requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
-    get_worker().do_batch(requests)
-
-def worker_callback(responses):
+def worker_callback(prj, responses):
+    const = prj.const
+    state = None
     update_views = []
+    update_marker_views = False
     update_position_view = None
     bkpts_add = [] 
     bkpts_del = []
@@ -259,11 +423,12 @@ def worker_callback(responses):
             if 'error_code' in response:
                 error_code = response['error_code']
                 error_message = response['error_message']
-        if response['cmd'] == get_const().CREATE_BREAKPOINT_COMMAND:
+        if response['cmd'] == const.CREATE_BREAKPOINT_COMMAND:
             new_bkpt = DlvBreakpointType()
+            view = prj.bkpt_view
             if result:
                 new_bkpt._update(response['response'])
-                find_bkpt = get_bkpt_view().find_breakpoint(new_bkpt.file, new_bkpt.line)
+                find_bkpt = view.find_breakpoint(new_bkpt.file, new_bkpt.line)
                 if find_bkpt is not None:
                     find_bkpt._update(response['response'])
                     find_bkpt._reset_error_message()
@@ -271,74 +436,91 @@ def worker_callback(responses):
                     bkpts_add.append(new_bkpt)
             else:
                 new_bkpt._update(response['parms'])
-                find_bkpt = get_bkpt_view().find_breakpoint(new_bkpt.file, new_bkpt.line)
+                find_bkpt = view.find_breakpoint(new_bkpt.file, new_bkpt.line)
                 if find_bkpt is None:
                     bkpts_add.append(new_bkpt)
                     find_bkpt = new_bkpt
                 find_bkpt._set_error_message(error_message)
-            if get_bkpt_view() not in update_views:
-                update_views.append(get_bkpt_view())
-        elif response['cmd'] == get_const().CLEAR_BREAKPOINT_COMMAND:
+            if view not in update_views:
+                update_views.append(view)
+        elif response['cmd'] == const.CLEAR_BREAKPOINT_COMMAND:
             if result:
+                view = prj.bkpt_view
                 new_bkpt = DlvBreakpointType()
                 new_bkpt._update(response['response'])
                 bkpts_del.append(new_bkpt)
-                if get_bkpt_view() not in update_views:
-                    update_views.append(get_bkpt_view())
-        elif response['cmd'] == get_const().BREAKPOINT_COMMAND:
+                if view not in update_views:
+                    update_views.append(view)
+        elif response['cmd'] == const.BREAKPOINT_COMMAND:
             if result:
-                get_bkpt_view().load_data(response['response'])
-                if get_bkpt_view() not in update_views:
-                    update_views.append(get_bkpt_view())
-        elif response['cmd'] == get_const().STACKTRACE_COMMAND:
+                view = prj.bkpt_view
+                view.load_data(response['response'])
+                update_marker_views = True
+                if view not in update_views:
+                    update_views.append(view)
+        elif response['cmd'] == const.STACKTRACE_COMMAND:
             if result:
-                get_stacktrace_view().load_data(response['response'])
-                if get_stacktrace_view() not in update_views:
-                    update_views.append(get_stacktrace_view())
-        elif response['cmd'] == get_const().GOROUTINE_COMMAND:
+                view = prj.stacktrace_view
+                view.load_data(response['response'])
+                if view not in update_views:
+                    update_views.append(view)
+        elif response['cmd'] == const.GOROUTINE_COMMAND:
             if result:
-                get_goroutine_view().load_data(response['response'], response['id'])
-                if get_goroutine_view() not in update_views:
-                    update_views.append(get_goroutine_view())
-        elif response['cmd'] == get_const().WATCH_COMMAND:
+                view = prj.goroutine_view
+                view.load_data(response['response'], response['current_goroutine_id'])
+                if view not in update_views:
+                    update_views.append(view)
+        elif response['cmd'] == const.WATCH_COMMAND:
             if result:
-                get_watch_view().load_data(response['response'])
-                if get_watch_view() not in update_views:
-                    update_views.append(get_watch_view())
-        elif response['cmd'] == get_const().STATE_COMMAND:
+                view = prj.watch_view
+                view.load_data(response['response'])
+                if view not in update_views:
+                    update_views.append(view)
+        elif response['cmd'] == const.STATE_COMMAND:
             if not result and error_code != -32803:
-                terminate_session()
+                print('line 490')
+                print(result)
+                print(error_code)
+                prj.terminate_session()
                 return
         if not result and error_code == -32803:
-            terminate_session(is_local_mode())
+            print('line 494')
+            prj.terminate_session(prj.is_local_mode())
             return
         if result and 'State' in response['response']:
             state = DlvStateType()
             state._update(response['response'])
+            prj.next_in_progress = state.NextInProgress
             if state.exited:
-                get_logger().debug("Process exit with status: %d" % state.exitStatus)
-                terminate_session()
+                prj.logger.debug("Process exit with status: %d" % state.exitStatus)
+                print('line 503')
+                prj.terminate_session()
                 return
-            else:
-                thread = state._get_thread('currentThread')
-                if thread is not None:
-                    view = sublime.active_window().find_open_file(thread.file)
-                    if view is None:
-                        sublime.active_window().focus_group(0)
-                    update_position_view = sublime.active_window().open_file("%s:%d" % (thread.file, thread.line), sublime.ENCODED_POSITION)
-                    getp().cursor = thread.file
-                    getp().cursor_position = thread.line
 
-    get_bkpt_view().upgrade_breakpoints(bkpts_add, bkpts_del)
+    if state is not None:
+        thread = state._get_thread('currentThread')
+        if thread is not None:
+            window = prj.window
+            view = window.find_open_file(thread.file)
+            if view is None:
+                window.focus_group(0)
+            update_position_view = window.open_file("%s:%d" % (thread.file, thread.line), sublime.ENCODED_POSITION)
+            prj.cursor = thread.file
+            prj.cursor_position = thread.line
+
+    prj.bkpt_view.upgrade_breakpoints(bkpts_add, bkpts_del)
 
     for view in update_views:
         view.update_view()
 
+    if update_marker_views:
+        prj.bkpt_view.update_markers()
+
     if update_position_view is not None:
-        update_position(update_position_view)
+        prj.update_position(update_position_view)
 
     if not commonResult:
-        set_status_message("Errors occured, details in file: %s" % get_logger().get_file())
+        set_status_message("Errors occured, details in file: %s" % prj.logger.get_file())
 
 class DlvBreakpointType(DlvObjectType):
     def __init__(self, file=None, line=None, **kwargs):
@@ -373,12 +555,6 @@ class DlvBreakpointType(DlvObjectType):
             self.__original_line = self.line
         return "dlv.bkpt%s" % self.__original_line
 
-    # def _add(self):
-    #     get_worker().do(get_const().CREATE_BREAKPOINT_COMMAND, self._as_parm)
-
-    # def _remove(self):
-    #     get_worker().do(get_const().CLEAR_BREAKPOINT_COMMAND, {"id": self.id, "name": self.name})
-
     def _set_error_message(self, error_message=None):
         self.__error_message = error_message if error_message is not None else '<not available>'
 
@@ -398,8 +574,8 @@ class DlvBreakpointType(DlvObjectType):
         assert (self.__original_line is not None)
         self.__line = line
 
-    def _show(self, view):
-        running = is_running()
+    def _show(self, running, view):
+        assert (view is not None)
         if not self.__showed or running != self.__show_running:
             icon_file = "Packages/SublimeDelve/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
             view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", icon_file, sublime.HIDDEN)
@@ -407,6 +583,7 @@ class DlvBreakpointType(DlvObjectType):
             self.__show_running = running
 
     def _hide(self, view):
+        assert (view is not None)
         if self.__showed:
             view.erase_regions(self._key)
             self.__showed = False
@@ -419,9 +596,9 @@ class DlvBreakpointType(DlvObjectType):
     def _is_loaded(self):
         return hasattr(self, 'id')
 
-    def _format(self):
+    def _format(self, running):
         output = "\"%s:%d\"" % (os.path.basename(self.file), self.line)
-        if is_running():
+        if running:
             if not self._is_error():
                 if self._is_loaded():
                     output +=  " %d" % self.id
@@ -463,7 +640,7 @@ class DlvLocationType(DlvObjectType):
         return variables
 
     def _format(self):
-        return "%s \"%s:%d\"" % (self.function['name'], os.path.basename(self.file), self.line)
+        return "%s \"%s:%d\"" % (os.path.basename(self.function['name']), os.path.basename(self.file), self.line)
 
 class DlvThreadType(DlvObjectType):
     def __init__(self, **kwargs):
@@ -498,11 +675,26 @@ class DlvGoroutineType(DlvObjectType):
         return self.currentLoc['line']
 
     def _format(self):
-        return "%s \"%s:%d\" %d" % (self.currentLoc['function']['name'], os.path.basename(self.currentLoc['file']), self.currentLoc['line'], self.id)
+        return "%s \"%s:%d\" %d" % (os.path.basename(self.currentLoc['function']['name']), os.path.basename(self.currentLoc['file']), self.currentLoc['line'], self.id)
+
+class DlvSessionView(DlvView):
+    def __init__(self, prj, view):
+        super(DlvSessionView, self).__init__(prj.const.SESSION_VIEW, prj.window, prj.const, view, True)
+        self.__prj = prj
+        if view is not None:
+            self.close()
+
+class DlvConsoleView(DlvView):
+    def __init__(self, prj, view):
+        super(DlvConsoleView, self).__init__(prj.const.CONSOLE_VIEW, prj.window, prj.const, view, True)
+        self.__prj = prj
+        if view is not None:
+            self.close()
 
 class DlvBreakpointView(DlvView):
-    def __init__(self, const, view):
-        super(DlvBreakpointView, self).__init__(const.BREAKPOINT_VIEW, const, view)
+    def __init__(self, prj, view):
+        super(DlvBreakpointView, self).__init__(prj.const.BREAKPOINT_VIEW, prj.window, prj.const, view)
+        self.__prj = prj
         self.__breakpoints = []
         if view is not None and view.settings().has('bkpts'):
             bkpts_add = [] 
@@ -526,10 +718,10 @@ class DlvBreakpointView(DlvView):
         row, col = view.rowcol(view.sel()[0].a)
         if len(self.__breakpoints) > 0:
             bkpt = self.__breakpoints[row]
-            find_view = sublime.active_window().find_open_file(bkpt.file)
+            find_view = self.window.find_open_file(bkpt.file)
             if find_view is None:
-                sublime.active_window().focus_group(0)
-            sublime.active_window().open_file("%s:%d" % (bkpt.file, bkpt.line), sublime.ENCODED_POSITION)
+                self.window.focus_group(0)
+            self.window.open_file("%s:%d" % (bkpt.file, bkpt.line), sublime.ENCODED_POSITION)
 
     def upgrade_breakpoints(self, bkpts_add=[], bkpts_del=[]):
         need_update = False
@@ -538,26 +730,53 @@ class DlvBreakpointView(DlvView):
             assert (cur_bkpt is None)
             cur_bkpt = bkpt
             self.__breakpoints.append(cur_bkpt)
-            update_view = sublime.active_window().find_open_file(cur_bkpt.file)
-            cur_bkpt._show(update_view)
+            update_view = self.window.find_open_file(cur_bkpt.file)
+            if update_view is not None:
+                running = self.__prj.is_running()
+                if not running or running and not \
+                            (self.__prj.cursor_position == cur_bkpt.line and self.__prj.cursor == cur_bkpt.file):
+                    cur_bkpt._show(running, update_view)
             need_update = True
         for bkpt in bkpts_del:
             cur_bkpt = self.find_breakpoint(bkpt.file, bkpt.line)
             if cur_bkpt is None:
                 continue
-            update_view = sublime.active_window().find_open_file(cur_bkpt.file)
-            cur_bkpt._hide(update_view)
+            update_view = self.window.find_open_file(cur_bkpt.file)
+            if update_view is not None:
+                cur_bkpt._hide(update_view)
             self.__breakpoints.remove(cur_bkpt)
             need_update = True
         return need_update
 
-    def update_marker(self, views):
+    def __get_marker_views(self):
+        views = []
+        for bkpt in self.__breakpoints:
+            view = self.window.find_open_file(bkpt.file)
+            if view is None:
+                continue
+            if view not in views:
+                views.append(view)
+        return views
+
+    def update_markers(self, views=None):
+        if views is None:
+            views = self.__get_marker_views()
         for view in views:
             file = view.file_name()
             assert (file is not None)
             for bkpt in self.__breakpoints:
-                if bkpt.file == file and not (getp().cursor_position == bkpt.line and getp().cursor == bkpt.file):
-                    bkpt._show(view)
+                if bkpt.file == file:
+                    running = self.__prj.is_running()
+                    if not running or running and not \
+                                (self.__prj.cursor_position == bkpt.line and self.__prj.cursor == bkpt.file):
+                        bkpt._show(running, view)
+
+    def clear_markers(self):
+        for bkpt in self.__breakpoints:
+            view = self.window.find_open_file(bkpt.file)
+            if view is None:
+                continue
+            bkpt._hide(view)
                             
     def update_view(self):
         super(DlvBreakpointView, self).update_view()
@@ -565,8 +784,9 @@ class DlvBreakpointView(DlvView):
             return
         self.__breakpoints.sort(key=lambda b: (b.file, b.line))
         bkpts = []
+        running = self.__prj.is_running()
         for bkpt in self.__breakpoints:
-            self.add_line(bkpt._format())
+            self.add_line(bkpt._format(running))
             bkpts.append({"file": bkpt.file, "line": bkpt.line})
         self.view.settings().set('bkpts', bkpts)
 
@@ -576,7 +796,6 @@ class DlvBreakpointView(DlvView):
         return None
 
     def find_breakpoint_by_id(self, id):
-        assert (is_running())
         for bkpt in self.__breakpoints:
             if bkpt._is_error():
                 continue
@@ -591,7 +810,6 @@ class DlvBreakpointView(DlvView):
         return None
 
     def load_data(self, data):
-        assert (is_running())
         bkpts_add = [] 
         bkpts_del = []
         bkpt_uuid = uuid.uuid4()        
@@ -623,8 +841,8 @@ class DlvBreakpointView(DlvView):
             bkpt = self.find_breakpoint(element['file'], element['line'])
             if bkpt is not None:
                 if not bkpt._is_error():
-                    if is_running():
-                        requests.append({"cmd": get_const().CLEAR_BREAKPOINT_COMMAND, "parms": {"id": bkpt.id, "name": bkpt.name}})
+                    if self.__prj.is_running():
+                        requests.append({"cmd": self.const.CLEAR_BREAKPOINT_COMMAND, "parms": {"bkpt_id": bkpt.id, "bkpt_name": bkpt.name}})
                     bkpts_del.append(bkpt)
                 else:
                     bkpts_error_del.append(bkpt)
@@ -632,12 +850,12 @@ class DlvBreakpointView(DlvView):
                 value = element['value']
                 if not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
                     bkpt = DlvBreakpointType(element['file'], element['line'])
-                    requests.append({"cmd": get_const().CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
+                    requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
                     bkpts_add.append(bkpt)
-        if is_running():
+        if self.__prj.is_running():
             if len(requests) > 0:
-                get_worker().do_batch(requests)
-            if self.upgrade_breakpoints([], bkpts_error_del):
+                self.__prj.worker.do_batch(requests)
+            if len(bkpts_error_del) > 0 and self.upgrade_breakpoints([], bkpts_error_del):
                 self.update_view()
         else:
             if self.upgrade_breakpoints(bkpts_add, bkpts_del):
@@ -646,18 +864,19 @@ class DlvBreakpointView(DlvView):
     def sync_breakpoints(self):
         requests = []
         for bkpt in self.__breakpoints:
-            requests.append({"cmd": get_const().CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
-        requests.append({"cmd": get_const().CONTINUE_COMMAND, "parms": None})
-        if get_watch_view().is_watches_exist():
-            requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
-        get_worker().do_batch(requests)
+            requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
+        if len(requests) > 0:
+            requests.append({"cmd": self.const.BREAKPOINT_COMMAND, "parms": None})
+        requests.append({"cmd": self.const.CONTINUE_COMMAND, "parms": None})
+        self.__prj.add_watch_request(requests)
+        self.__prj.worker.do_batch(requests)
 
     def update_breakpoint_lines(self, view=None):
         got_changes = False
         for bkpt in self.__breakpoints:
             cur_view = view
             if view is None:
-                cur_view = sublime.active_window().find_open_file(bkpt.file)
+                cur_view = self.window.find_open_file(bkpt.file)
                 if cur_view is None:
                     continue
             else:
@@ -675,10 +894,12 @@ class DlvBreakpointView(DlvView):
         return got_changes
 
 class DlvStacktraceView(DlvView):
-    def __init__(self, const, view):
-        super(DlvStacktraceView, self).__init__(const.STACKTRACE_VIEW, const, view)
-        self.__locations = []
-        self.__cursor_position = 0
+    def __init__(self, prj, view):
+        super(DlvStacktraceView, self).__init__(prj.const.STACKTRACE_VIEW, prj.window, prj.const, view)
+        self.__prj = prj
+        self.__reset()
+        if view is not None:
+            self.close()
 
     def __reset(self):
         self.__locations = []
@@ -710,30 +931,33 @@ class DlvStacktraceView(DlvView):
                 self.view.erase_regions("dlv.location_pos")
                 self.__cursor_position = new_row
                 loc = self.__locations[new_row]
-                find_view = sublime.active_window().find_open_file(loc.file)
+                find_view = self.window.find_open_file(loc.file)
                 if find_view is None:
-                    sublime.active_window().focus_group(0)
-                sublime.active_window().open_file("%s:%d" % (loc.file, loc.line), sublime.ENCODED_POSITION)
+                    self.window.focus_group(0)
+                self.window.open_file("%s:%d" % (loc.file, loc.line), sublime.ENCODED_POSITION)
         if loc is None:
             loc = self.__locations[self.__cursor_position]
         self.view.add_regions("dlv.location_pos", [self.view.line(self.view.text_point(self.__cursor_position, 0))], \
-            "entity.name.class", "bookmark" if get_goroutine_view().is_current_goroutine_selected() and \
+            "entity.name.class", "bookmark" if self.__prj.goroutine_view.is_current_goroutine_selected() and \
                         self.__cursor_position == 0 else "dot", sublime.HIDDEN)
-        get_variable_view().load(loc._get_variables())
-        if get_variable_view().is_open():
-            get_variable_view().update_view()
+        self.__prj.variable_view.load(loc._get_variables())
+        if self.__prj.variable_view.is_open():
+            self.__prj.variable_view.update_view()
 
     def load_data(self, data):
-        if get_variable_view().is_open():
-            get_variable_view().clear()
+        view = self.__prj.variable_view
+        if view.is_open():
+            view.clear()
         self.__reset()
+        if not self.__prj.is_running():
+            return
         load_variables = True
         for element in data['Locations']:
             loc = DlvLocationType()
             loc._update({"Location": element})
             self.__locations.append(loc)
             if load_variables:
-                get_variable_view().load(loc._get_variables())
+                view.load(loc._get_variables())
                 load_variables = False
 
     def update_view(self):
@@ -745,19 +969,24 @@ class DlvStacktraceView(DlvView):
         self.select_location()
 
 class DlvGoroutineView(DlvView):
-    def __init__(self, const, view):
-        super(DlvGoroutineView, self).__init__(const.GOROUTINE_VIEW, const, view)
-        self.__goroutines = []
-        self.__cursor_position = 0
-        self.__current_goroutine_position = -1
+    def __init__(self, prj, view):
+        super(DlvGoroutineView, self).__init__(prj.const.GOROUTINE_VIEW, prj.window, prj.const, view)
+        self.__prj = prj
+        self.__reset()
+        if view is not None:
+            self.close()
 
     def __reset(self):
         self.__goroutines = []                
         self.__cursor_position = 0
         self.__current_goroutine_position = -1
+        self.__current_goroutine_id = 0
 
     def is_current_goroutine_selected(self):
         return self.__cursor_position == self.__current_goroutine_position
+
+    def get_current_goroutine_id(self):
+        return self.__current_goroutine_id
 
     def open(self, reset=False):
         super(DlvGoroutineView, self).open(reset)
@@ -785,24 +1014,27 @@ class DlvGoroutineView(DlvView):
                 self.view.erase_regions("dlv.goroutine_pos")
                 self.__cursor_position = new_row
                 gr = self.__goroutines[new_row]
-                find_view = sublime.active_window().find_open_file(gr._current_file)
+                find_view = self.window.find_open_file(gr._current_file)
                 if find_view is None:
-                    sublime.active_window().focus_group(0)
-                sublime.active_window().open_file("%s:%d" % (gr._current_file, gr._current_line), sublime.ENCODED_POSITION)
+                    self.window.focus_group(0)
+                self.window.open_file("%s:%d" % (gr._current_file, gr._current_line), sublime.ENCODED_POSITION)
         if gr is None:
             gr = self.__goroutines[self.__cursor_position]
         self.view.add_regions("dlv.goroutine_pos", [self.view.line(self.view.text_point(self.__cursor_position, 0))], \
             "entity.name.class", "dot" if not self.is_current_goroutine_selected() else "bookmark", sublime.HIDDEN)
-        get_worker().do(get_const().STACKTRACE_COMMAND, {"id": gr.id})
+        self.__prj.worker.do(self.const.STACKTRACE_COMMAND, {"goroutine_id": gr.id})
 
-    def load_data(self, data, goroutine_id):
+    def load_data(self, data, current_goroutine_id):
         self.__reset()
+        if not self.__prj.is_running():
+            return
+        self.__current_goroutine_id = current_goroutine_id
         idx = 0
         for element in data['Goroutines']:
             gr = DlvGoroutineType()
             gr._update({"Goroutine": element})
             self.__goroutines.append(gr)
-            if gr.id == goroutine_id:
+            if gr.id == current_goroutine_id:
                 self.__cursor_position = idx
                 self.__current_goroutine_position = idx
             idx += 1
@@ -867,12 +1099,12 @@ class DlvtVariableType(DlvObjectType):
     def _is_error(self):
         return (self.__error_message != None)
 
-    def _format(self, indent="", output="", line=0):
+    def _format(self, running, indent="", output="", line=0):
         self.__line = line
         line += 1
-        if self._is_error() or not self._is_loaded() or not is_running():
-            return ("%s = \"%s\"" % (self.name, self.__error_message if is_running() and self._is_error() else '<not available>'), line)
         icon = " "
+        if self._is_error() or not self._is_loaded() or not running:
+            return ("%s%s = \"%s\"" % (icon, self.name, self.__error_message if running and self._is_error() else '<not available>'), line)
         if self._has_children():
             if self.__expanded:
                 icon = "-"
@@ -917,7 +1149,7 @@ class DlvtVariableType(DlvObjectType):
         indent += "    "
         if self.__expanded:
             for chld_var in self.__children:
-                output, line = chld_var._format(indent, output, line)
+                output, line = chld_var._format(running, indent, output, line)
         return (output, line)
 
     def _is_expanded(self):
@@ -981,13 +1213,17 @@ class DlvtVariableType(DlvObjectType):
         return len(self.children) > 0
 
 class DlvVariableView(DlvView):
-    def __init__(self, name, const, view=None):
-        super(DlvVariableView, self).__init__(name, const, view)
+    def __init__(self, name, prj, view=None):
+        super(DlvVariableView, self).__init__(name, prj.window, prj.const, view)
+        self.__prj = prj
         self.__variables = []
-        if view is not None and view.settings().has('watches'):
-            assert (self.name == self.const.WATCH_VIEW)
-            for element in view.settings().get('watches'):
-                self.__variables.append(DlvtVariableType(name=element['exp']))
+        if view is not None:
+            if self.name == self.const.WATCH_VIEW:
+                if view.settings().has('watches'):
+                    for element in view.settings().get('watches'):
+                        self.__variables.append(DlvtVariableType(name=element['exp']))
+            else:
+                self.close()
 
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
@@ -1010,20 +1246,21 @@ class DlvVariableView(DlvView):
         return None
 
     def load(self, variables):
+        assert (self.name == self.const.VARIABLE_VIEW)
         self.__variables = variables
 
     def load_data(self, data):
         assert (self.name == self.const.WATCH_VIEW)
         for element in data:
             if element['result']:
-                var = self.find_watch_by_uuid(element['id'])
+                var = self.find_watch_by_uuid(element['watch_id'])
                 if var is None:
                     continue
                 cur_var = DlvtVariableType()
                 var._update(element['eval'])
                 var._reset_error_message()
             else:
-                var = self.find_watch_by_uuid(element['parms']['id'])
+                var = self.find_watch_by_uuid(element['parms']['watch_id'])
                 if var is None:
                     continue
                 if 'error_message' in element:
@@ -1037,8 +1274,9 @@ class DlvVariableView(DlvView):
             return
         line = 0
         watches = []
+        running = self.__prj.is_running()
         for var in self.__variables:
-            output, line = var._format(line=line)
+            output, line = var._format(running, line=line)
             self.add_line(output, ' ')
             watches.append({"exp": var.name})
         self.view.settings().set('watches', watches)
@@ -1079,14 +1317,17 @@ class DlvVariableView(DlvView):
             return
         var = DlvtVariableType(name=exp.strip())
         self.__variables.append(var)
-        if is_running():
-            get_worker().do(self.const.WATCH_COMMAND, {"watches": [{"id": var._uuid, "expr": var.name}] })
+        goroutine_id = self.__prj.goroutine_view.get_current_goroutine_id()
+        if self.__prj.is_running() and  goroutine_id > 0:
+            self.__prj.worker.do(self.const.WATCH_COMMAND, \
+                {"watches": [{"watch_id": var._uuid, "expr": var.name}], "goroutine_id": goroutine_id})
         else:
             self.update_view()
 
     def add_watch(self, view):
         assert (self.name == self.const.WATCH_VIEW)
-        sublime.active_window().show_input_panel('Delve add watch =', '', self.__edit_on_done, None, None)
+        value = view.substr(view.sel()[0])
+        self.window.show_input_panel('Delve add watch =', value, self.__edit_on_done, None, None)
 
     def remove_watch(self, view):
         assert (self.name == self.const.WATCH_VIEW)
@@ -1100,51 +1341,24 @@ class DlvVariableView(DlvView):
         assert (self.name == self.const.WATCH_VIEW)
         response = []
         for var in self.__variables:
-            response.append({"id": var._uuid, "expr": var.name})
+            response.append({"watch_id": var._uuid, "expr": var.name})
         return response
 
     def is_watches_exist(self):
         assert (self.name == self.const.WATCH_VIEW)
         return (len(self.__variables) > 0)
 
-def clear_position():
-    last_cursor_view = getp().last_cursor_view
-    if last_cursor_view is not None:
-        region = last_cursor_view.get_regions("dlv.suspend_pos")
-        if region is None or len(region) == 0:
-            return
-        assert (len(region) == 1)
-        row, col = last_cursor_view.rowcol(region[0].a)
-        bkpt = get_bkpt_view().find_breakpoint(last_cursor_view.file_name(), row + 1)
-        last_cursor_view.erase_regions("dlv.suspend_pos")
-        if bkpt is not None:
-            bkpt._show(last_cursor_view)
-
-def update_position(view=None):
-    clear_position()
-    getp().last_cursor_view = view
-    project = getp() 
-    cursor = project.cursor
-    cursor_position = project.cursor_position
-    if view is not None and cursor == view.file_name() and getp != 0:
-        bkpt = get_bkpt_view().find_breakpoint(cursor, cursor_position)
-        if  is_running():
-            if bkpt is not None:
-                bkpt._hide(view)
-            view.add_regions("dlv.suspend_pos", [view.line(view.text_point(cursor_position - 1, 0))], \
-                "entity.name.class", "bookmark", sublime.HIDDEN)
-
-def sync_breakpoints():
-    get_bkpt_view().sync_breakpoints()
-
 class DlvToggleBreakpoint(sublime_plugin.TextCommand):
     def run(self, edit):
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
         elements = []
         update_view = self.view
         file = self.view.file_name()
-        if get_bkpt_view().is_open() and self.view.id() == get_bkpt_view().get_view_id():
+        if prj.bkpt_view.is_open() and is_equal(self.view, prj.bkpt_view):
             row = self.view.rowcol(self.view.sel()[0].begin())[0]
-            bkpt = get_bkpt_view().find_breakpoint_by_idx(row)
+            bkpt = prj.bkpt_view.find_breakpoint_by_idx(row)
             if bkpt is not None:
                 elements.append({"file": bkpt.file, "line": bkpt.line})
         elif file is not None: # code source file
@@ -1154,337 +1368,220 @@ class DlvToggleBreakpoint(sublime_plugin.TextCommand):
                 if len(value) > 0:
                     elements.append({"file": file, "line": line + 1, "value": value})
         if len(elements) > 0:
-            get_bkpt_view().toggle_breakpoint(elements)    
+            prj.bkpt_view.toggle_breakpoint(elements)    
 
     def is_enabled(self):
-        if is_plugin_enable():
-            view = sublime.active_window().active_view()
-            return view.file_name() is not None or get_bkpt_view().is_open() and view.id() == get_bkpt_view().get_view_id()
-        return False
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return False
+        view = prj.window.active_view()
+        return (view.file_name() is not None or prj.bkpt_view.is_open() and is_equal(view, prj.bkpt_view))
 
     def is_visible(self):
-        if is_plugin_enable():
-            view = sublime.active_window().active_view()
-            return view.file_name() is not None or get_bkpt_view().is_open() and view.id() == get_bkpt_view().get_view_id()
-        return False
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return False
+        view = prj.window.active_view()
+        return (view.file_name() is not None or prj.bkpt_view.is_open() and is_equal(view, prj.bkpt_view))
 
 class DlvClick(sublime_plugin.TextCommand):
     def run(self, edit):
-        if not is_running():
+        ok, prj = is_plugin_enable()
+        if not ok or ok and not prj.is_running():
             return
-        if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
-            get_variable_view().expand_collapse_variable(self.view, toggle=True)
-        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
-            get_watch_view().expand_collapse_variable(self.view, toggle=True)
-        elif get_goroutine_view().is_open() and self.view.id() == get_goroutine_view().get_view_id():
-            get_goroutine_view().select_goroutine(self.view)
-        elif get_stacktrace_view().is_open() and self.view.id() == get_stacktrace_view().get_view_id():
-            get_stacktrace_view().select_location(self.view)
+        if prj.variable_view.is_open() and is_equal(self.view, prj.variable_view):
+            prj.variable_view.expand_collapse_variable(self.view, toggle=True)
+        elif prj.watch_view.is_open() and is_equal(self.view, prj.watch_view):
+            prj.watch_view.expand_collapse_variable(self.view, toggle=True)
+        elif prj.goroutine_view.is_open() and is_equal(self.view, prj.goroutine_view):
+            prj.goroutine_view.select_goroutine(self.view)
+        elif prj.stacktrace_view.is_open() and is_equal(self.view, prj.stacktrace_view):
+            prj.stacktrace_view.select_location(self.view)
 
     def is_enabled(self):
-        return is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return ok
 
 class DlvDoubleClick(sublime_plugin.TextCommand):
     def run(self, edit):
-        if get_bkpt_view().is_open() and self.view.id() == get_bkpt_view().get_view_id():
-            get_bkpt_view().select_breakpoint(self.view)
-        if not is_running():
-            return
-        # if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
-        #     pass
-
+        ok, prj = is_plugin_enable()
+        if ok and prj.bkpt_view.is_open() and is_equal(self.view, prj.bkpt_view):
+            prj.bkpt_view.select_breakpoint(self.view)
+ 
     def is_enabled(self):
-        return is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return ok
 
 class DlvCollapseVariable(sublime_plugin.TextCommand):
     def run(self, edit):
-        if self.view.id() == get_variable_view().get_view_id():
-            get_variable_view().expand_collapse_variable(self.view, expand=False)
-        else:
-            get_watch_view().expand_collapse_variable(self.view, expand=False)
+        ok, prj = is_plugin_enable()
+        if ok and is_equal(self.view, prj.variable_view):
+            prj.variable_view.expand_collapse_variable(self.view, expand=False)
+        elif ok and is_equal(self.view, prj.watch_view):
+            prj.watch_view.expand_collapse_variable(self.view, expand=False)
 
     def is_enabled(self):
-        if not is_running():
+        ok, prj = is_plugin_enable()
+        if not ok or ok and not prj.is_running():
             return False
-        if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
+        if prj.variable_view.is_open() and is_equal(self.view, prj.variable_view):
             return True
-        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
+        elif prj.watch_view.is_open() and is_equal(self.view, prj.watch_view):
             return True
         return False
 
 class DlvExpandVariable(sublime_plugin.TextCommand):
     def run(self, edit):
-        if self.view.id() == get_variable_view().get_view_id():
-            get_variable_view().expand_collapse_variable(self.view)
-        else:
-            get_watch_view().expand_collapse_variable(self.view)
+        ok, prj = is_plugin_enable()
+        if ok and is_equal(self.view, prj.variable_view):
+            prj.variable_view.expand_collapse_variable(self.view)
+        elif ok and is_equal(self.view, prj.watch_view):
+            prj.watch_view.expand_collapse_variable(self.view)
 
     def is_enabled(self):
-        if not is_running():
+        ok, prj = is_plugin_enable()
+        if not ok or ok and not prj.is_running():
             return False
-        if get_variable_view().is_open() and self.view.id() == get_variable_view().get_view_id():
+        if prj.variable_view.is_open() and is_equal(self.view, prj.variable_view):
             return True
-        elif get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
+        elif prj.watch_view.is_open() and is_equal(self.view, prj.watch_view):
             return True
         return False
 
 class DlvAddWatch(sublime_plugin.TextCommand):
     def run(self, edit):
-        get_watch_view().add_watch(self.view)
+        ok, prj = is_plugin_enable()
+        prj.watch_view.add_watch(self.view)
 
     def is_enabled(self):
-        return is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return ok
 
     def is_visible(self):
-        return is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return ok
 
 class DlvRemoveWatch(sublime_plugin.TextCommand):
     def run(self, edit):
-        get_watch_view().remove_watch(self.view)
+        ok, prj = is_plugin_enable()
+        prj.watch_view.remove_watch(self.view)
 
     def is_enabled(self):
-        if is_plugin_enable() and get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
-            return True
-        return False
+        ok, prj = is_plugin_enable()
+        return (ok and prj.watch_view.is_open() and is_equal(self.view, prj.watch_view))
 
     def is_visible(self):
-        if is_plugin_enable() and get_watch_view().is_open() and self.view.id() == get_watch_view().get_view_id():
-            return True
-        return False
+        ok, prj = is_plugin_enable()
+        return (ok and prj.watch_view.is_open() and is_equal(self.view, prj.watch_view))
 
 class DlvEventListener(sublime_plugin.EventListener):
     def on_query_context(self, view, key, operator, operand, match_all):
-        if not is_plugin_enable():
+        ok, prj = is_plugin_enable()
+        if not ok:
             return None
         if key == "dlv_running":
-            return is_running() == operand
+            return prj.is_running() == operand
         elif key == "dlv_input_view":
-            return getp().check_input_view(view)
+            return prj.check_input_view(view)
         elif key.startswith("dlv_"):
-            v = get_variable_view() if (get_variable_view().get_view_id() == view.id()) else None
+            v = prj.variable_view if is_equal(prj.variable_view, view) else None
             if v is None:
-                v = get_watch_view() if (get_watch_view().get_view_id() == view.id()) else None
+                v = prj.watch_view if is_equal(prj.watch_view, view) else None
             return None if v is None else True == operand
         return None
 
     def on_activated(self, view):
-        if is_plugin_enable() and view.file_name() is not None:
-            get_bkpt_view().update_marker([view])
-            if is_running():
-                update_position(view)
+        ok, prj = is_plugin_enable()
+        if ok and view.file_name() is not None:
+            prj.bkpt_view.update_markers([view])
+            if prj.is_running():
+                prj.update_position(view)
 
     def on_load(self, view):
-        if is_plugin_enable() and view.file_name() is not None:
-            get_bkpt_view().update_marker([view])
-            if is_running():
-                update_position(view)
+        ok, prj = is_plugin_enable()
+        if ok and view.file_name() is not None:
+            prj.bkpt_view.update_markers([view])
+            if prj.is_running():
+                prj.update_position(view)
 
     def on_modified(self, view):
-        if is_plugin_enable() and get_bkpt_view().is_open() and not is_running():
-            if get_bkpt_view().update_breakpoint_lines(view):
-                get_bkpt_view().update_view()
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        v = prj.bkpt_view
+        if not prj.is_running() and v.is_open():
+            if v.update_breakpoint_lines(view):
+                v.update_view()
 
     def on_pre_close(self, view):
-        if is_plugin_enable() and not is_running():
-            if get_bkpt_view().update_breakpoint_lines(view):
-                get_bkpt_view().update_view()
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        if not prj.is_running():
+            if prj.bkpt_view.update_breakpoint_lines(view):
+                prj.bkpt_view.update_view()
+        elif is_equal(view, prj.session_view):
+            print('line 1531')
+            prj.terminate_session(prj.is_local_mode())
 
     def on_close(self, view):
-        if not is_plugin_enable():
+        ok, prj = is_plugin_enable()
+        if not ok:
             return
-        for v in get_views():
-            if v.is_open() and view.id() == v.get_view_id():
+        for v in prj.get_views():
+            if v.is_open() and is_equal(view, v):
                 v.was_closed()
                 break
-        if get_console_view().is_open() and view.id() == get_console_view().get_view_id():
-            get_console_view().was_closed()
-        get_bkpt_view().hide_view_breakpoints(view)
-
-def set_status_message(message):
-    sublime.status_message(message)
-
-def dlv_output(pipe, cmd_session=None):
-    started_session = False
-    # reaesc = re.compile(r'\x1b[^m]*m')
-    reaesc = re.compile(r'\x1b\[[\d;]*m')
-
-    client_proc = get_client_proc()
-    server_proc = get_server_proc()
-    if client_proc is not None and pipe == client_proc.stdout:
-        sublime.set_timeout(show_input, 0)
-        get_logger().debug("Input field is ready")
-        sublime.set_timeout(sync_breakpoints, 0)
-        sublime.set_timeout(set_status_message("Delve session started"), 0)
-
-    while True:
-        try:
-            line = pipe.readline()
-            if len(line) == 0:
-                if is_local_mode() and server_proc is not None:
-                    if pipe in [server_proc.stdout, server_proc.stderr]:
-                        get_logger().error("Broken %s pipe of the Delve server" % \
-                            ("stdout" if pipe == server_proc.stdout else "stderr"))
-                        break
-                if client_proc is not None and client_proc.stdout is not None:
-                    get_logger().error("Broken %s pipe of the Delve session" % \
-                        ("stdout" if pipe == client_proc.stdout else "stderr"))
-                break
-            else:
-                line = reaesc.sub('', line)
-                line = line.replace("\\n", "\n").replace("\\\"", "\"").replace("\\t", "\t")
-#                line = line.replace('\n', '') #alternative of line above
-                if line.startswith("(dlv)"):
-                    line = line.replace("(dlv)", "")
-                line = line.strip()
-                if len(line) == 0:
-                    continue
-            if client_proc is not None:
-                if pipe == client_proc.stdout:
-                    get_session_view().add_line(line)
-                    get_logger().info("Session stdout: " + line)
-                elif pipe == client_proc.stderr:
-                    get_session_view().add_line(line)
-                    get_logger().error("Session stderr: " + line)
-            if server_proc is not None:
-                if pipe == server_proc.stdout:
-                    get_console_view().add_line(line)
-                    get_logger().info("Server stdout: " + line)
-                    if not started_session:
-                        get_logger().debug("Delve server is working, try to start Delve Session")
-                        lock = threading.RLock()
-                        lock.acquire()
-                        sublime.set_timeout(load_session_subprocess(cmd_session), 0)
-                        started_session = True
-                        lock.release()
-                elif pipe == server_proc.stderr:
-                    get_console_view().add_line(line)
-                    get_logger().error("Server stderr: " + line)
-        except:
-            traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-            get_logger().error("Exception thrown, details in file: %s" % get_logger().get_file())
-
-    if client_proc is not None and pipe == client_proc.stdout:
-        message = "Delve session closed"
-        sublime.set_timeout(set_status_message(message), 0)
-        get_logger().info(message)
-    if server_proc is not None and pipe == server_proc.stdout:
-        get_logger().info("Delve server closed")
-        sublime.set_timeout(terminate_session, 0)
-    if (not is_local_mode() and client_proc is not None and pipe == client_proc.stdout) or \
-                (is_local_mode() and server_proc is not None and pipe == server_proc.stdout):
-        sublime.set_timeout(cleanup_session, 0)
-
-def terminate_session(send_sigint=False):
-    if is_running():
-        try:
-            if send_sigint:
-                get_client_proc().send_signal(signal.SIGINT)
-            else:
-                get_client_proc().terminate()
-            if is_server_running():
-                get_server_proc().send_signal(signal.SIGINT)
-        except:
-            traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-            get_logger().error("Exception thrown, details in file: %s" % get_logger().get_file())
-            return False
-    return True
-
-def cleanup_session():
-    v = get_console_view()
-    if v.is_open():
-        if v.is_close_at_stop():
-            v.close()
-        else:
-            v.clear(True)
-    for v in get_views():
-        if v.is_open():
-            if v.is_close_at_stop():
-                v.close()
-            else:
-                v.clear(True)
-    getp().panel_on_stop()
-    get_logger().debug("Closed required debugging views")
-    if get_const().is_project_executable():
-        get_const().clear_project_executable()
-        get_logger().debug("Cleared project executable settings")
-    get_worker().stop()
-    get_logger().stop()
-    clear_position()
-
-def terminate_server():
-    if is_server_running():
-        try:
-            get_logger().debug('Try to terminate Delve server')
-            get_server_proc().send_signal(signal.SIGINT)
-        except:
-            traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-            get_logger().error("Exception thrown, details in file: %s" % get_logger().get_file())
-            get_server_proc().kill()
-            get_logger().error("Delve server killed after timeout")
-    v = get_console_view()
-    if v.is_open():
-        if v.is_close_at_stop():
-            v.close()
-            get_logger().debug("Closed console view")
-        else:
-            v.clear(True)
-
-    if get_console_view().is_open():
-        get_console_view().close()
-
-def load_session_subprocess(cmd_session):
-    proc = None
-    try:
-        message = "Delve session started with command: %s" % " ".join(cmd_session)
-        get_logger().info(message)
-        get_session_view().add_line(message)
-        proc = open_client_subprocess(cmd_session)
-    except:
-        traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-        message = "Exception thrown, details in file: %s" % get_logger().get_file()
-        get_logger().error(message)
-        set_status_message(message)
-        if is_local_mode():
-            terminate_server()
-        else:
-            cleanup_session()
-        return             
-    getp().reset_cursor()
-    t = threading.Thread(target=dlv_output, args=(proc.stdout,))
-    t.start()
-    t = threading.Thread(target=dlv_output, args=(proc.stderr,))
-    t.start()
+        if prj.console_view.is_open() and is_equal(view, prj.console_view):
+            prj.console_view.was_closed()
+        prj.bkpt_view.hide_view_breakpoints(view)
 
 class DlvStart(sublime_plugin.WindowCommand):
-    def create_cmd(self):
+    def __create_cmd(self, prj):
         value = "dlv"
         cmd_server = []
         cmd_session = []
         cmd_server.append(value)
         cmd_session.append(value)
-        if is_local_mode():
-            cmd_server.append(get_const().MODE)
+        if prj.is_local_mode():
+            cmd_server.append(prj.const.MODE)
         cmd_session.append("connect")
         cmd_server.append("--headless")
         cmd_server.append("--accept-multiclient")
         cmd_server.append("--api-version=2")
-        if get_const().LOG:
+        if prj.const.LOG:
             cmd_server.append("--log")
-        value = "%s:%d" % (get_const().HOST, get_const().PORT)
+        value = "%s:%d" % (prj.const.HOST, prj.const.PORT)
         cmd_server.append("--listen=%s" % value)
         cmd_session.append(value)
-        if get_const().ARGS != "":
+        if prj.const.ARGS != "":
             cmd_server.append("--")
-            cmd_server.append(get_const().ARGS)
+            cmd_server.append(prj.const.ARGS)
         return (cmd_session, cmd_server)
 
+    def __get_cwd(self, prj):
+        value = prj.const.CWD
+        cwd = None
+        if value != "":
+            cwd = value
+        else:
+            file_name = prj.window.project_file_name()
+            if file_name is None:
+                file_name = prj.window.active_view().file_name()
+            if file_name is not None:
+                cwd = os.path.dirname(file_name)
+        return cwd
+
     def run(self):
-        if get_const().is_project_executable():
-            get_const().clear_project_executable()
-            get_logger().debug("Cleared project executable settings")
-        exec_choices = get_const().get_project_executables()
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        if prj.const.is_project_executable():
+            prj.const.clear_project_executable()
+            prj.logger.debug("Cleared project executable settings")
+        exec_choices = prj.const.get_project_executables()
         if exec_choices is None:
-            self.launch()
+            self.__launch(prj)
             return
 
         def on_choose(index):
@@ -1492,38 +1589,22 @@ class DlvStart(sublime_plugin.WindowCommand):
                 # User cancelled the panel, abort launch
                 return
             exec_name = list(exec_choices)[index]
-            get_const().set_project_executable(exec_name)
-            self.launch()
+            prj.const.set_project_executable(exec_name)
+            self.__launch(prj)
 
         self.window.show_quick_panel(list(exec_choices), on_choose)
 
-    def launch(self):
-        global dlv_panel_window
+    def __launch(self, prj):
+        const = prj.const
+        logger = prj.logger
+        logger.start(const.DEBUG_FILE)
+        if const.is_project_executable():
+            logger.debug("Set project executable settings: %s" % const.get_project_executable_name())
 
-        get_logger().start(get_const().DEBUG_FILE)
-        if get_const().is_project_executable():
-            get_logger().debug("Set project executable settings: %s" % get_const().get_project_executable_name())
+        prj.panel_on_start()
 
-        active_view = None
-        window = sublime.active_window()
-        if window is not None:
-            active_view = window.active_view()
-
-        getp().panel_on_start()
-
-        if is_local_mode():
-            if get_console_view().is_closed():
-                if get_console_view().is_open_at_start():
-                    get_console_view().open(True)
-            else:
-                if get_console_view().is_open_at_start():
-                    get_console_view().clear(True)
-                else:
-                    get_console_view().close()
-            if get_console_view().is_open():
-                get_logger().debug("Console view is ready")
-
-        for v in get_views():
+        if prj.is_local_mode():
+            v = prj.console_view 
             if v.is_closed():
                 if v.is_open_at_start():
                     v.open(True)
@@ -1532,329 +1613,343 @@ class DlvStart(sublime_plugin.WindowCommand):
                     v.clear(True)
                 else:
                     v.close()
-        get_logger().debug("Debugging views is ready")
+            if v.is_open():
+                logger.debug("Console view is ready")
 
-        cmd_session, cmd_server = self.create_cmd()        
-        if is_local_mode():
-            value = get_const().CWD
-            cwd = None
-            if value != "":
-                cwd = value
+        for v in prj.get_views():
+            if v.is_closed():
+                if v.is_open_at_start():
+                    v.open(True)
             else:
-                file_name = None
-                if window is not None:
-                    file_name = window.project_file_name()
-                    if file_name is None and active_view is not None:
-                        file_name = active_view.file_name()
-                if file_name is not None:
-                    cwd = os.path.dirname(file_name)
-            set_status_message("Starts Delve server, wait...")
-            message = "Delve server started with command: %s" % " ".join(cmd_server)
-            get_logger().info(message)
-            get_logger().debug("In directory: %s" % cwd)            
-            get_console_view().add_line(message)
-            proc = None
-            try:
-                proc = open_server_subprocess(cmd_server, cwd)
-            except:
-                traceback.print_exc(file=(sys.stdout if get_logger().get_file() == get_const().STDOUT else open(get_logger().get_file(),"a")))
-                message = "Exception thrown, details in file: %s" % get_logger().get_file()
-                get_logger().error(message)
-                set_status_message(message)
-                terminate_server()
-                cleanup_session()
-                return             
-            t = threading.Thread(target=dlv_output, args=(proc.stdout, cmd_session))
-            t.start()
-            t = threading.Thread(target=dlv_output, args=(proc.stderr,))
-            t.start()
+                if v.is_open_at_start():
+                    v.clear(True)
+                else:
+                    v.close()
+        logger.debug("Debugging views is ready")
+
+        cmd_session, cmd_server = self.__create_cmd(prj)        
+        if prj.is_local_mode():
+            prj.load_server_subprocess(cmd_server, cmd_session, self.__get_cwd(prj))
         else:
-            load_session_subprocess(cmd_session)
+            prj.load_session_subprocess(cmd_session)
 
     def is_enabled(self):
-        return is_plugin_enable() and not is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and not prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and not is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and not prj.is_running())
 
 class DlvResume(sublime_plugin.WindowCommand):
     def run(self):
-        get_worker().do(get_const().CONTINUE_COMMAND)
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        requests = []
+        requests.append({"cmd": prj.const.CONTINUE_COMMAND, "parms": None})
+        prj.add_watch_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvNext(sublime_plugin.WindowCommand):
     def run(self):
-        get_worker().do(get_const().NEXT_COMMAND)
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        requests = []
+        requests.append({"cmd": prj.const.NEXT_COMMAND, "parms": None})
+        prj.add_watch_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.is_next_enabled())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.is_next_enabled())
 
 class DlvStepIn(sublime_plugin.WindowCommand):
     def run(self):
-        get_worker().do(get_const().STEP_COMMAND)
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        requests = []
+        requests.append({"cmd": prj.const.STEP_COMMAND, "parms": None})
+        prj.add_watch_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvStepOut(sublime_plugin.WindowCommand):
     def run(self):
-        get_worker().do(get_const().STEPOUT_COMMAND)
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        requests = []
+        requests.append({"cmd": prj.const.STEPOUT_COMMAND, "parms": None})
+        prj.add_watch_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvRestart(sublime_plugin.WindowCommand):
     def run(self):
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
         requests = []
-        requests.append({"cmd": get_const().RESTART_COMMAND, "parms": None})
-        requests.append({"cmd": get_const().CONTINUE_COMMAND, "parms": None})
-        if get_watch_view().is_watches_exist():
-            requests.append({"cmd": get_const().WATCH_COMMAND, "parms": {"watches": get_watch_view().get_watches_as_parm()}})
-        get_worker().do_batch(requests)
+        requests.append({"cmd": prj.const.RESTART_COMMAND, "parms": None})
+        requests.append({"cmd": prj.const.CONTINUE_COMMAND, "parms": None})
+        prj.add_watch_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
+
+class DlvCancelNext(sublime_plugin.WindowCommand):
+    def run(self):
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        prj.worker.do(prj.const.CANCEL_NEXT_COMMAND)
+    
+    def is_enabled(self):
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and not prj.is_next_enabled())
+
+    def is_visible(self):
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and not prj.is_next_enabled())
 
 class DlvStop(sublime_plugin.WindowCommand):
     def run(self):
-        terminate_session(is_local_mode())
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        print('line 1762')
+        prj.terminate_session(prj.is_local_mode())
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvInput(sublime_plugin.WindowCommand):
     def run(self):
-        show_input()
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        prj.show_input()
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvPrevCmd(sublime_plugin.TextCommand):
     def run(self, edit):
-        project = getp()
-        if project.command_history_pos > 0:
-            project.command_history_pos -= 1
-        if project.command_history_pos < len(project.command_history):
-            set_input(edit, project.command_history[project.command_history_pos])
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        if prj.command_history_pos > 0:
+            prj.command_history_pos -= 1
+        if prj.command_history_pos < len(prj.command_history):
+            prj.set_input(edit, prj.command_history[prj.command_history_pos])
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvNextCmd(sublime_plugin.TextCommand):
     def run(self, edit):
-        project = getp()
-        if project.command_history_pos < len(project.command_history):
-            project.command_history_pos += 1
-        if project.command_history_pos < len(project.command_history):
-            set_input(edit, project.command_history[project.command_history_pos])
+        ok, prj = is_plugin_enable()
+        if not ok:
+            return
+        if prj.command_history_pos < len(prj.command_history):
+            prj.command_history_pos += 1
+        if prj.command_history_pos < len(prj.command_history):
+            prj.set_input(edit, prj.command_history[prj.command_history_pos])
         else:
-            set_input(edit, "")
+            prj.set_input(edit, "")
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running()
-
-class DlvOpenSessionView(sublime_plugin.WindowCommand):
-    def run(self):
-        if get_session_view().is_closed():
-            get_session_view().open()
-
-    def is_enabled(self):
-        return is_plugin_enable() and is_running() and get_session_view().is_closed()
-
-    def is_visible(self):
-        return is_plugin_enable() and is_running() and get_session_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running())
 
 class DlvOpenConsoleView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_console_view().is_closed():
-            get_console_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and prj.console_view.is_closed():
+            prj.console_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and is_local_mode() and is_server_running() and get_console_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_local_mode() and prj.is_server_running() and prj.console_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and is_local_mode() and is_server_running() and get_console_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_local_mode() and prj.is_server_running() and prj.console_view.is_closed())
 
 class DlvOpenBreakpointView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_bkpt_view().is_closed():
-            get_bkpt_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and prj.bkpt_view.is_closed():
+            prj.bkpt_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and get_bkpt_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.bkpt_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and get_bkpt_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.bkpt_view.is_closed())
 
 class DlvOpenVariableView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_variable_view().is_closed():
-            get_variable_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and prj.variable_view.is_closed():
+            prj.variable_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running() and get_variable_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.variable_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running() and get_variable_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.variable_view.is_closed())
 
 class DlvOpenWatchView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_watch_view().is_closed():
-            get_watch_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and prj.watch_view.is_closed():
+            prj.watch_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and get_watch_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.watch_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and get_watch_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.watch_view.is_closed())
 
 class DlvOpenStacktraceView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_stacktrace_view().is_closed():
-            get_stacktrace_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and  prj.stacktrace_view.is_closed():
+            prj.stacktrace_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running() and get_stacktrace_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.stacktrace_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running() and get_stacktrace_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.stacktrace_view.is_closed())
 
 class DlvOpenGoroutineView(sublime_plugin.WindowCommand):
     def run(self):
-        if get_goroutine_view().is_closed():
-            get_goroutine_view().open()
+        ok, prj = is_plugin_enable()
+        if ok and prj.goroutine_view.is_closed():
+            prj.goroutine_view.open()
 
     def is_enabled(self):
-        return is_plugin_enable() and is_running() and get_goroutine_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.goroutine_view.is_closed())
 
     def is_visible(self):
-        return is_plugin_enable() and is_running() and get_goroutine_view().is_closed()
+        ok, prj = is_plugin_enable()
+        return (ok and prj.is_running() and prj.goroutine_view.is_closed())
 
 class DlvEnable(sublime_plugin.WindowCommand):
     def run(self):
-        if is_project_file_exists():
-            window = sublime.active_window()
-            data = window.project_data()
+        ok, prj = is_plugin_enable()
+        assert (not ok)
+        if is_project_file_exists(prj.window):
+            data = prj.window.project_data()
             if 'settings' not in data:
                 data['settings'] = {}
             data['settings']['delve_enable'] = True
-            window.set_project_data(data)
+            prj.window.set_project_data(data)
         else:
             sublime.error_message("An open project is required")
 
     def is_enabled(self):
-        return not is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return not ok
 
     def is_visible(self):
-        return not is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return not ok
 
 class DlvDisable(sublime_plugin.WindowCommand):
     def run(self):
-        window = sublime.active_window()
-        assert (window.project_file_name() is not None and 'settings' in window.project_data())
-        data = window.project_data()
+        ok, prj = is_plugin_enable()
+        assert (ok)
+        prj.bkpt_view.clear_markers()
+        for v in prj.get_views():
+            if v.is_open():
+                v.close()
+        data = prj.window.project_data()
         data['settings']['delve_enable'] = False
-        window.set_project_data(data)
-        key = window.id()
-        if key in dlv_project:
-            dlv_project.pop(key)
+        prj.window.set_project_data(data)
+        dlv_project.pop(prj.window.id())
         
     def is_enabled(self):
-        return is_plugin_enable() and not is_running()
+        ok, prj = is_plugin_enable()
+        return ok
 
     def is_visible(self):
-        return is_plugin_enable() and not is_running()
+        ok, prj = is_plugin_enable()
+        return ok
 
 class DlvTest(sublime_plugin.WindowCommand):
+    def run(self):
+        pass
+
     def is_enabled(self):
-        return is_plugin_enable()
+        ok, prj = is_plugin_enable()
+        return (ok and False)
 
     def is_visible(self):
-        return is_plugin_enable()
-
-    def run(self):
-        print(sublime.active_window().extract_variables())
-        print(sublime.active_window().project_data())
-        print(sublime.active_window().project_file_name())
-        print(sublime.active_window().id())
-
-        # bkpt = DlvBreakpointType("/home/dmitry/Projects/gotest/hello.go", 17)
-        # dlv_worker.do('createbreakpoint', bkpt._as_parm)
-        # global dlv_const
-        # global dlv_logger
-        # global dlv_connect
-
-        # response = dlv_connect.RPCServer.State({})
-
-        # breakpointin1 = DlvBreakpointType("/home/dmitry/Projects/gotest/hello.go", 16)
-        # breakpointin2 = DlvBreakpointType("/home/dmitry/Projects/gotest/hello.go", 17)
-
-        # try:
-        #     dlv_connect._open(dlv_const.HOST, dlv_const.PORT)
-        #     dlv_connect._prepare_batch()
-        #     dlv_connect.RPCServer.CreateBreakpoint(breakpointin1._as_parm)
-        #     dlv_connect.RPCServer.CreateBreakpoint(breakpointin2._as_parm)
-        #     result = dlv_connect()
-        #     # print(breakpointin.name)
-        #     # result = dlv_connect.RPCServer.CreateBreakpoint(breakpointin._as_parm)
-        #     # result = dlv_connect.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
-        #     # breakpointin._update(result)
-        #     # breakpointout = DlvBreakpointType(**result['Breakpoint'])
-        #     print(result)
-        # finally:
-        #     dlv_connect._close()
-
-        # # result = conn.add(1, 2)
-        # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
-        # result = conn.RPCServer.CreateBreakpoint({"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}})
-        # print(result)
-        # value = 'Testing!'
-        # result = conn.echo(value)
-        # assert result == value
-        # print('Single test completed')
-
-        # callmethod = {"method":"RPCServer.CreateBreakpoint","params":[{"Breakpoint":{"name":"bp1","file":"/home/dmitry/Projects/gotest/hello.go","line":16}}],"jsonrpc": "2.0","id":3}
-        # message = json.dumps(callmethod)
-        # message_bytes = message.encode('utf-8')
-        # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # sock.settimeout(dlv_const.TIMEOUT)
-        # sock.connect(dlv_const.HOST, dlv_const.PORT)
-        # sock.send(message_bytes)
-        # while True:
-        #     try:
-        #         data = sock.recv(1024)
-        #     except:
-        #         traceback.print_exc()
-        #         break
-        #     if not data or len(data) < 1024: break
-        #     dlv_logger.debug(data.strip().decode(sys.getdefaultencoding()))
-        # sock.close()
+        ok, prj = is_plugin_enable()
+        return (ok and False)

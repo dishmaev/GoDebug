@@ -157,6 +157,10 @@ class DlvConst(object):
         return 'next'
 
     @property
+    def CANCEL_NEXT_COMMAND(self):
+        return 'cancelnext'
+
+    @property
     def STEP_COMMAND(self):
         return 'step'
 
@@ -201,21 +205,21 @@ class DlvConst(object):
         return 3456
 
     @property
-    def MODE_DEBUG(self):
+    def DEBUG_MODE(self):
         return 'debug'
 
     @property
-    def MODE_TEST(self):
+    def TEST_MODE(self):
         return 'test'
 
     @property
-    def MODE_REMOTE(self):
+    def REMOTE_MODE(self):
         return 'remote'
 
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
     @property
     def MODE(self):
-        return self.__get_settings('mode', self.MODE_DEBUG) # "debug" | "test" | "remote"
+        return self.__get_settings('mode', self.DEBUG_MODE) # "debug" | "test" | "remote"
 
     # The host of the Delve server
     @property
@@ -374,11 +378,11 @@ class DlvConst(object):
 
     # Open view when debugging starts
     def __get_session_open_at_start(self):
-        return self.__get_settings("%s_%s" % (self.SESSION_VIEW, self.__open_at_start_suffix), True)
+        return True
 
     # Close view when debugging stops
     def __get_session_close_at_stop(self):
-        return self.__get_settings("%s_%s" % (self.SESSION_VIEW, self.__close_at_stop_suffix), True)
+        return True
 
     # View title
     def __get_session_title(self):

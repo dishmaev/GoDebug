@@ -2,8 +2,9 @@ import sublime
 import sublime_plugin
 
 class DlvView(object):
-    def __init__(self, name, const, view=None, scroll=False):
+    def __init__(self, name, window, const, view=None, scroll=False):
         self.name = name
+        self.window = window
         self.const = const
         self.view = view
         self.scroll = scroll
@@ -13,19 +14,19 @@ class DlvView(object):
 
     def open(self, reset=False):
         if self.view is None or self.view.window() is None:
-            sublime.active_window().focus_group(self.get_panel_group())
+            self.window.focus_group(self.get_panel_group())
             self.__create_view()
 
     def close(self):
         if self.view is not None:
-            sublime.active_window().focus_group(self.get_panel_group())
+            self.window.focus_group(self.get_panel_group())
             self.__destroy_view()
 
     def clear(self, reset=False):
         self.update_view()
 
     def __create_view(self):
-        self.view = sublime.active_window().new_file()
+        self.view = self.window.new_file()
         self.view.set_name(self.const.get_view_setting(self.name, self.const.TITLE))
         self.view.set_scratch(True)
         self.view.set_read_only(True)
@@ -49,12 +50,18 @@ class DlvView(object):
         else:
             return None
 
+    def id(self):
+        if self.view is not None:
+            return self.view.id()
+        else:
+            return None
+
     def was_closed(self):
         self.view = None
 
     def __destroy_view(self):
-        sublime.active_window().focus_view(self.view)
-        sublime.active_window().run_command("close")
+        self.window.focus_view(self.view)
+        self.window.run_command("close")
         self.view = None
 
     def add_line(self, line, prefix=' - '):
