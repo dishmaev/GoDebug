@@ -1,9 +1,11 @@
 import queue
 import threading
 import logging
+import os
 
 class DlvLogger(object):
-    def __init__(self, const):
+    def __init__(self, window, const):
+        self.__window = window
         self.__const = const
         self.__fh = None
         self.__file = "" # log file name, not "stdout"
@@ -18,10 +20,19 @@ class DlvLogger(object):
                 'error':    self.__log.error,
                 'critical': self.__log.critical 
                 }
+    
+    def __get_file_name(self, file):
+        file_name = self.__file
+        dir_name = os.path.dirname(file_name)
+        if dir_name == '':
+            dir_name = os.path.dirname(self.__window.project_file_name())
+            file_name = dirname + file_name
+        return file_name
 
     def start(self, file):
+        file_name = (file if file == self.__const.STDOUT else __get_file_name(file))
         if self.__started:
-            if self.__file == file:
+            if self.__file == file_name:
                 self.__logging_level_switch["debug"]("Logging already started!")
                 return
             else:
@@ -29,8 +40,8 @@ class DlvLogger(object):
 
         self.__log.setLevel(logging.DEBUG if self.__const.DEBUG else logging.INFO)
         if file != self.__const.STDOUT:
-            self.__file = file
-            self.__fh = logging.FileHandler(file);
+            self.__file = file_name
+            self.__fh = logging.FileHandler(file_name);
             self.__fh.setLevel(logging.DEBUG if self.__const.DEBUG else logging.INFO)
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             self.__fh.setFormatter(formatter)

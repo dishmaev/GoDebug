@@ -23,8 +23,8 @@ dlv_project = {}
 class DlvProject(object):
     def __init__(self, window):
         self.window = window
-        self.const = DlvConst()
-        self.logger = DlvLogger(self.const)
+        self.const = DlvConst(self.window)
+        self.logger = DlvLogger(self.window, self.const)
 
         self.cursor = ''
         self.cursor_position = 0
@@ -688,18 +688,19 @@ class DlvBreakpointView(DlvView):
         super(DlvBreakpointView, self).__init__(prj.const.BREAKPOINT_VIEW, prj.window, prj.const, view)
         self.__prj = prj
         self.__breakpoints = []
-        if view is not None and view.settings().has('bkpts'):
+        if self.const.SAVE_BREAKPOINT:
+            data = self.const.load_breakpoints()
             bkpts_add = [] 
-            for element in view.settings().get('bkpts'):
+            for element in data:
                 bkpts_add.append(DlvBreakpointType(element['file'], element['line']))
             self.upgrade_breakpoints(bkpts_add)
-            self.reset_dirty()
 
     def open(self, reset=False):
         super(DlvBreakpointView, self).open(reset)
         if self.is_open():
             self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
-            self.update_breakpoint_lines()
+            if not self.__prj.is_running():
+                self.update_breakpoint_lines()
             self.update_view()
 
     def hide_view_breakpoints(self, view):
@@ -781,7 +782,6 @@ class DlvBreakpointView(DlvView):
         for bkpt in self.__breakpoints:
             self.add_line(bkpt._format(running))
             bkpts.append({"file": bkpt.file, "line": bkpt.line})
-        self.view.settings().set('bkpts', bkpts)
 
     def find_breakpoint_by_idx(self, idx):
         if idx >= 0 and idx < len(self.__breakpoints):
@@ -856,10 +856,16 @@ class DlvBreakpointView(DlvView):
      
     def sync_breakpoints(self):
         requests = []
+        bkpts = []
         for bkpt in self.__breakpoints:
             requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
+            bkpts.append({"file": bkpt.file, "line": bkpt.line})
         if len(requests) > 0:
             requests.append({"cmd": self.const.BREAKPOINT_COMMAND, "parms": None})
+        if self.const.SAVE_BREAKPOINT:
+            self.const.save_breakpoints(bkpts)
+        if self.const.SAVE_WATCH:
+            self.__prj.watch_view.save_watches()
         requests.append({"cmd": self.const.CONTINUE_COMMAND, "parms": None})
         self.__prj.add_watch_request(requests)
         self.__prj.worker.do_batch(requests)
@@ -1206,12 +1212,10 @@ class DlvVariableView(DlvView):
         super(DlvVariableView, self).__init__(name, prj.window, prj.const, view)
         self.__prj = prj
         self.__variables = []
-        if view is not None:
-            if self.name == self.const.WATCH_VIEW:
-                if view.settings().has('watches'):
-                    for element in view.settings().get('watches'):
-                        self.__variables.append(DlvtVariableType(name=element['exp']))
-                self.reset_dirty()
+        if self.name == self.const.WATCH_VIEW and self.const.SAVE_BREAKPOINT:
+            data = self.const.load_watches()
+            for element in data:
+                self.__variables.append(DlvtVariableType(name=element))
 
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
@@ -1267,7 +1271,6 @@ class DlvVariableView(DlvView):
             output, line = var._format(running, line=line)
             self.add_line(output, ' ')
             watches.append({"exp": var.name})
-        self.view.settings().set('watches', watches)
 
     def get_variable_at_line(self, line, var_list=None):
         if var_list is None:
@@ -1335,6 +1338,13 @@ class DlvVariableView(DlvView):
     def is_watches_exist(self):
         assert (self.name == self.const.WATCH_VIEW)
         return (len(self.__variables) > 0)
+
+    def save_watches(self):
+        assert (self.name == self.const.WATCH_VIEW)
+        watches = []
+        for watch in self.__variables:
+            watches.append(watch.name)
+        self.const.save_watches(watches)
 
 class DlvToggleBreakpoint(sublime_plugin.TextCommand):
     def run(self, edit):

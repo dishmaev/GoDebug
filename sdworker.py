@@ -54,7 +54,7 @@ def __get_error_response(cmd, parms):
 def __get_error_response_ex(cmd, parms, e):
     return {"cmd": cmd, "parms": parms, "result": False, "error_code": e.code, "error_message": e.message}
 
-def __do_method(alive, queue, prj, worker_callback=None):
+def _do_method(alive, queue, prj, worker_callback=None):
     const = prj.const
     logger = prj.logger
     connect = JsonRpcTcpClient(const, logger)
@@ -180,9 +180,7 @@ class DlvWorker(object):
     def __start(self):
         self.__stoped = False
         self.__queue = queue.Queue()
-        t = threading.Thread(name='worker', 
-                      target=__do_method,
-                      args=(self.__alive, self.__queue, self.__prj, self.__worker_callback))
+        t = threading.Thread(name='worker', target=_do_method, args=(self.__alive, self.__queue, self.__prj, self.__worker_callback))
         t.start()
 
     def stop(self):

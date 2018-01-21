@@ -1,13 +1,19 @@
 import sublime
+import os
 
 class DlvConst(object):
-    def __init__(self):
+    def __init__(self, window):
+        self.__window = window
         self.__settings_file_name = "SublimeDelve.sublime-settings"
+        self.__bkpt_settings_file_name = "SublimeDelve.breakpoint-settings"
+        self.__watch_settings_file_name = "SublimeDelve.watch-settings"
         self.__project_settings_prefix = "sublimedelve"
         self.__panel_group_suffix = "group"
         self.__open_at_start_suffix = "open_at_start"
         self.__close_at_stop_suffix = "close_at_stop"
         self.__title_suffix = "title"
+        self.__breakpoint_suffix = "breakpoints"
+        self.__watch_suffix = "watches"
         self.__project_exec_suffix = "executables"
         self.__project_exec_settings = {}
         self.__project_exec_name = None
@@ -68,13 +74,11 @@ class DlvConst(object):
             raise Exception("Default key %s value cannot be None" % key)
         if key in self.__project_exec_settings:
             return self.__project_exec_settings[key]
-        window = sublime.active_window()
-        if window is not None:
-            view = window.active_view()
-            if view is not None:
-                settings = view.settings()
-                if settings.has("%s_%s" % (self.__project_settings_prefix, key)):
-                    return settings.get("%s_%s" % (self.__project_settings_prefix, key))
+        view = self.__window.active_view()
+        if view is not None:
+            settings = view.settings()
+            if settings.has("%s_%s" % (self.__project_settings_prefix, key)):
+                return settings.get("%s_%s" % (self.__project_settings_prefix, key))
         value = sublime.load_settings(self.__settings_file_name).get(key, default)
         if value is None:
             value = default
@@ -84,16 +88,14 @@ class DlvConst(object):
         return (self.__view_switch[code])[key]()
 
     def set_project_executable(self, name):
-        window = sublime.active_window()
-        if window is not None:
-            view = window.active_view()
-            if view is not None:
-                settings = view.settings()
-                exec_choices = settings.get("%s_%s" % (self.__project_settings_prefix, self.__project_exec_suffix))
-                if exec_choices is None or type(exec_choices) != dict or not name in exec_choices:
-                    raise Exception("Project executable settings %s not found" % name)
-                self.__project_exec_settings = exec_choices[name]
-                self.__project_exec_name = name
+        view = self.__window.active_view()
+        if view is not None:
+            settings = view.settings()
+            exec_choices = settings.get("%s_%s" % (self.__project_settings_prefix, self.__project_exec_suffix))
+            if exec_choices is None or type(exec_choices) != dict or not name in exec_choices:
+                raise Exception("Project executable settings %s not found" % name)
+            self.__project_exec_settings = exec_choices[name]
+            self.__project_exec_name = name
     
     def is_project_executable(self):
         return self.__project_exec_name is not None
@@ -106,15 +108,51 @@ class DlvConst(object):
         self.__project_exec_name = None
     
     def get_project_executables(self):
-        window = sublime.active_window()
-        if window is not None:
-            view = window.active_view()
-            if view is not None:
-                settings = view.settings()
-                exec_choices = settings.get("%s_%s" % (self.__project_settings_prefix, self.__project_exec_suffix))
-                if exec_choices is not None and type(exec_choices) == dict:
-                    return list(exec_choices)
+        settings = self.__window.active_view().settings()
+        exec_choices = settings.get("%s_%s" % (self.__project_settings_prefix, self.__project_exec_suffix))
+        if exec_choices is not None and type(exec_choices) == dict:
+            return list(exec_choices)
         return None
+
+    def __load_project_settings(self, base_name):
+        settings = sublime.load_settings(base_name)
+        key = os.path.dirname(self.__window.project_file_name())
+        return settings.get(key) if settings.has(key) else []
+
+    def __save_project_settings(self, base_name, values):
+        settings = sublime.load_settings(base_name)
+        key = os.path.dirname(self.__window.project_file_name())
+        settings.set(key,values)
+        sublime.save_settings(base_name)
+
+
+    def load_breakpoints(self):
+        return self.__load_project_settings(self.__bkpt_settings_file_name)
+
+    def save_breakpoints(self, bkpts):
+        self.__save_project_settings(self.__bkpt_settings_file_name, bkpts)
+
+    def load_watches(self):
+        return self.__load_project_settings(self.__watch_settings_file_name)
+
+        # data = self.__window.project_data()
+        # if 'settings' in data:
+        #     key = "%s_%s" % (self.__project_settings_prefix, self.__watch_suffix)
+        #     if key in data['settings']:
+        #         return data['settings'][key]
+        # return None
+
+    def save_watches(self, watches):
+        self.__save_project_settings(self.__watch_settings_file_name, watches)
+
+        # data = self.__window.project_data()
+        # if 'settings' not in data:
+        #     data['settings'] = {}
+        # key = "%s_%s" % (self.__project_settings_prefix, self.__watch_suffix)
+        # if key not in data['settings']:
+        #     data['settings'][key] = {}
+        # data['settings'][key] = watches
+        # self.__window.set_project_data(data)
 
     @property
     def STATE_COMMAND(self):
@@ -205,6 +243,10 @@ class DlvConst(object):
         return 3456
 
     @property
+    def BUFFER(self):
+        return 4096
+
+    @property
     def DEBUG_MODE(self):
         return 'debug'
 
@@ -251,10 +293,15 @@ class DlvConst(object):
     def TIMEOUT(self):
         return self.__get_settings('timeout', 10) # in seconds
 
-    # Buffer size
+    # Save breakpoints to the settings file before start debug, restore when the project is loaded
     @property
-    def BUFFER(self):
-        return self.__get_settings('buffer', 4096) # in bytes
+    def SAVE_BREAKPOINT(self):
+        return self.__get_settings('save_breakpoints', True)
+
+    # Save watches to the settings file before start debug, restore when the project is loaded
+    @property
+    def SAVE_WATCH(self):
+        return self.__get_settings('save_watches', True)
 
     # Whether to log the raw data read from and written to the Delve session and the inferior program.
     @property
@@ -361,7 +408,7 @@ class DlvConst(object):
 
     # Close view when debugging stops
     def __get_watch_close_at_stop(self):
-        return self.__get_settings("%s_%s" % (self.WATCH_VIEW, self.__close_at_stop_suffix), False)
+        return self.__get_settings("%s_%s" % (self.WATCH_VIEW, self.__close_at_stop_suffix), True)
 
     # View title
     def __get_watch_title(self):
@@ -424,7 +471,7 @@ class DlvConst(object):
 
         # Close view when debugging stops
     def __get_breakpoint_close_at_stop(self):
-        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__close_at_stop_suffix), False)
+        return self.__get_settings("%s_%s" % (self.BREAKPOINT_VIEW, self.__close_at_stop_suffix), True)
 
     # View title
     def __get_breakpoint_title(self):
