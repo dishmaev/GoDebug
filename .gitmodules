@@ -1,0 +1,3 @@
+[submodule "tools"]
+	path = tools/bin
+	url = git@github.com:dishmaev/tools.git

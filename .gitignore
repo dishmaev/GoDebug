@@ -1,0 +1,6 @@
+.DS_Store
+*.sublime-workspace
+jsonrpctcp
+old
+test.json
+note.txt
