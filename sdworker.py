@@ -35,16 +35,20 @@ def __default_cfg():
                 'maxStructFields': -1
             }
 
-def __get_eval_parms(goroutine_id, expr):
-    return {"Scope": {"GoroutineID": goroutine_id}, "Expr": expr, "Cfg": __default_cfg()}
+def __get_eval_parms(goroutine_id, frame, expr):
+    return {"Scope": {"GoroutineID": goroutine_id, "Frame": frame}, "Expr": expr, "Cfg": __default_cfg()}
+
+def __get_variable_parms(goroutine_id, frame):
+    return {"Scope": {"GoroutineID": goroutine_id, "Frame": frame}, "Cfg": __default_cfg()}
 
 def __get_stacktrace_parms(goroutine_id):
-    return {"Id": goroutine_id, "Depth": 20, "Full": False, "Cfg": __default_cfg()}
+    # return {"Id": goroutine_id, "Depth": 20, "Full": False, "Cfg": __default_cfg()}
+    return {"Id": goroutine_id, "Depth": 20}
 
 def __get_current_goroutine(response):
     if type(response) is dict:
         if 'State' in response:
-            if  not response['State']['exited'] and 'currentThread' in response['State']:
+            if not response['State']['exited'] and 'currentThread' in response['State']:
                 return response['State']['currentThread']['goroutineID']
     return None
 
@@ -67,8 +71,9 @@ def _do_method(alive, queue, prj, worker_callback=None):
                 continue
             responses = []
             errors = False
-            breakpoints = False
             goroutine_id = None
+            goroutines = False
+            frame = 0
             watches = None
             for request in requests:
                 cmd = request["cmd"]
@@ -81,8 +86,6 @@ def _do_method(alive, queue, prj, worker_callback=None):
                         response = connect.RPCServer.Command(parms)
                         goroutine_id = __get_current_goroutine(response)
                     elif cmd == const.STATE_COMMAND:
-                        if not breakpoints:
-                            breakpoints = True
                         if errors:
                             errors = False
                         response = connect.RPCServer.State(parms)
@@ -94,18 +97,25 @@ def _do_method(alive, queue, prj, worker_callback=None):
                     elif cmd == const.RESTART_COMMAND:
                         response = connect.RPCServer.Restart(parms)
                     elif cmd == const.CANCEL_NEXT_COMMAND:
-                        parms = {}
                         response = connect.RPCServer.CancelNext(parms)
                     elif cmd == const.STACKTRACE_COMMAND:
                         response = connect.RPCServer.Stacktrace(__get_stacktrace_parms(parms['goroutine_id']))
-                    elif cmd == const.WATCH_COMMAND:
-                        watches = parms['watches']
-                        if parms['goroutine_id'] is not None:
-                            goroutine_id = parms['goroutine_id']
-                        continue  
                     elif cmd == const.BREAKPOINT_COMMAND:
-                        if not breakpoints:
-                            breakpoints = True
+                        response = connect.RPCServer.ListBreakpoints(parms)
+                    elif cmd == const.VARIABLE_COMMAND:
+                        call_parms = __get_variable_parms(parms['goroutine_id'], parms['frame'])
+                        response_locals = connect.RPCServer.ListLocalVars(call_parms)
+                        response_args = connect.RPCServer.ListFunctionArgs(call_parms)
+                        response = {"Locals": response_locals['Variables'], "Arguments": response_args['Args']}
+                    elif cmd == const.WATCH_COMMAND:
+                        if 'goroutine_id' in parms:
+                            goroutine_id = parms['goroutine_id']
+                            frame = parms['frame']
+                        watches = parms['watches']
+                        continue  
+                    elif cmd == const.GOROUTINE_COMMAND:
+                        if not goroutines:
+                            goroutines = True
                         continue  
                     else:
                         raise ValueError("Unknown worker command: %s" % cmd)
@@ -136,33 +146,37 @@ def _do_method(alive, queue, prj, worker_callback=None):
                 except:
                     responses.append(__get_error_response(cmd, parms))
                     errors = True
-            if not errors and goroutine_id is not None and goroutine_id != 0:
+            if not errors and goroutines:
+                cmd = const.GOROUTINE_COMMAND
                 try:
-                    cmd = const.GOROUTINE_COMMAND
-                    response_goroutines = connect.RPCServer.ListGoroutines(parms)
-                    if breakpoints:
-                        cmd = const.BREAKPOINT_COMMAND
-                        response_breakpoints = connect.RPCServer.ListBreakpoints(parms)
-                        responses.append({"cmd": cmd, "result": True, "response": response_breakpoints})
-                    responses.append({"cmd": const.GOROUTINE_COMMAND, "result": True, "response": response_goroutines, "current_goroutine_id": goroutine_id})
+                    response = connect.RPCServer.ListGoroutines(parms)
+                    found = False
+                    for gr in response['Goroutines']:
+                        if gr['id'] == goroutine_id:
+                            found = True
+                            break
+                    if not found:
+                        goroutine_id = 0
+                        errors = True
+                    responses.append({"cmd": const.GOROUTINE_COMMAND, "result": True, "response": response, "current_goroutine_id": goroutine_id})
                 except JsonRpcTcpProtocolError as e:
                     responses.append(__get_error_response_ex(cmd, parms, e))
                     errors = True
                 except:
                     responses.append(__get_error_response(cmd, parms))
                     errors = True
-                if not errors and watches is not None:
-                    cmd == const.WATCH_COMMAND
-                    response_watches = []
-                    for element in watches:
-                        parms['watch_id'] = element['watch_id']
-                        try:
-                            response_watches.append({"watch_id": element['watch_id'], "result": True, "eval": connect.RPCServer.Eval(__get_eval_parms(goroutine_id, element['expr']))})
-                        except JsonRpcTcpProtocolError as e:
-                            response_watches.append(__get_error_response_ex(cmd, parms, e))
-                        except:
-                            response_watches.append(__get_error_response(cmd, parms))
-                    responses.append({"cmd": const.WATCH_COMMAND, "result": True, "response": response_watches})
+            if not errors and watches is not None and goroutine_id > 0:
+                cmd = const.WATCH_COMMAND
+                response_watches = []
+                for element in watches:
+                    try:
+                        value = connect.RPCServer.Eval(__get_eval_parms(goroutine_id, frame, element['expr']))
+                        response_watches.append({"watch_id": element['watch_id'], "result": True, "eval": value})
+                    except JsonRpcTcpProtocolError as e:
+                        response_watches.append(__get_error_response_ex(cmd, element, e))
+                    except:
+                        response_watches.append(__get_error_response(cmd, element))
+                responses.append({"cmd": const.WATCH_COMMAND, "result": True, "response": response_watches})
 
             if worker_callback is not None:
                 # callback

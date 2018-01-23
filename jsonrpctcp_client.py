@@ -2,6 +2,8 @@ import sys
 import json
 import socket 
 import uuid
+import time
+import traceback
 
 JSONRPC_ERRORS = {
     -32800: {'code':-32800, 'message':'Client connection not opened'},
@@ -9,6 +11,7 @@ JSONRPC_ERRORS = {
     -32802: {'code':-32802, 'message':'Client socket receive error'},
     -32803: {'code':-32803, 'message':'Client socket timeout'},
     -32804: {'code':-32804, 'message':'Client batch mode already enabled'},
+    -32805: {'code':-32805, 'message':'Client socket receive buffer is full'},
     -32700: {'code':-32700, 'message':'Parse Delve response error'},
     -32701: {'code':-32701, 'message':'Internal Delve error'},
     -32600: {'code':-32600, 'message':'Invalid client request'},
@@ -52,14 +55,6 @@ class JsonRpcTcpProtocolError(Exception):
         return self.__repr__()
 
 class JsonRpcTcpClient(object):
-    """
-    This is the JSON RPC client class, which translates attributes into
-    function calls and request / response translations, and organizes
-    batches, notifications, etc.
-    """
-    # _requests = None
-    # _request = None
-    # _response = None
 
     def __init__(self, const, logger):
         self.__const = const
@@ -154,10 +149,11 @@ class JsonRpcTcpClient(object):
         notify = False
         if 'id' not in request:
             notify = True
-        response_text = self._send_and_receive(message, notify=notify)
-        response = self._parse_response(response_text)
-        if response is None:
-            return response
+        self._send(message)
+        if not notify:
+            response = self._receive2(notify)
+        else:
+            return None
         self._response = response        
         jsonrpctcp_validate_response(response)
         return response['result']
@@ -179,22 +175,16 @@ class JsonRpcTcpClient(object):
         notify = False
         if len(ids) == 0:
             notify = True
-        response_text = self._send_and_receive(
-            message, batch=True, notify=notify
-        )
-        responses = self._parse_response(response_text)
+        self._send(message)
+        responses = None
+        if not notify:
+            response = self._receive2(notify)
         if responses is None:
             responses = []
         assert type(responses) is list
         return JsonRpcTcpBatchResponses(responses, ids)
     
-    def _send_and_receive(self, message, batch=False, notify=False):
-        """
-        Handles the socket connection, sends the JSON request, and
-        (if not a notification) retrieves the response and decodes the
-        JSON text.
-        """
-        responselist = []
+    def _send(self, message):
         self.__logger.debug('CLIENT | REQUEST: %s' % message)
 
         try:
@@ -206,6 +196,8 @@ class JsonRpcTcpClient(object):
             self._close()
             raise JsonRpcTcpProtocolError(-32801)
 
+    def _receive(self, notify):
+        responselist = []
         while not notify and self.__sock_opened:
             try:
                 data = self.sock.recv(self.__const.BUFFER)
@@ -223,18 +215,49 @@ class JsonRpcTcpClient(object):
                 break
         response = ''.join(responselist)
         self.__logger.debug('CLIENT | RESPONSE: %s' % response)
-        return response
-        
-    def _parse_response(self, response):
+        self.__logger.debug('JSON response length in bytes: %d' % len(response))
         if response == '':
             return None
         try:
-            obj = json.loads(response)
+            json_obj = json.loads(response)
         except ValueError:
             raise JsonRpcTcpProtocolError(-32700)
-        if type(obj) is dict and 'error' in obj and obj.get('error') is not None:
-            raise JsonRpcTcpProtocolError(-32701, obj.get('error'))
-        return obj
+        if type(json_obj) is dict and 'error' in json_obj and json_obj.get('error') is not None:
+            raise JsonRpcTcpProtocolError(-32701, json_obj.get('error'))
+        return json_obj
+
+    def _receive2(self, notify):
+        self.sock.setblocking(False)
+        responselist = []
+        start = False
+        while not notify and self.__sock_opened:
+            data = None
+            try:
+                data = self.sock.recv(self.__const.BUFFER)
+            except:
+                pass
+            if not data:
+                if start: 
+                    break
+                else:
+                    continue
+            else:
+                start = True
+            response_text = data.strip().decode(sys.getdefaultencoding())
+            responselist.append(response_text)
+        self.sock.setblocking(True)
+        response = ''.join(responselist)
+        self.__logger.debug('CLIENT | RESPONSE: %s' % response)
+        self.__logger.debug('JSON response length in bytes: %d' % len(response))
+        if response == '':
+            return None
+        try:
+            json_obj = json.loads(response)
+        except ValueError:
+            raise JsonRpcTcpProtocolError(-32700)
+        if type(json_obj) is dict and 'error' in json_obj and json_obj.get('error') is not None:
+            raise JsonRpcTcpProtocolError(-32701, json_obj.get('error'))
+        return json_obj
         
 class JsonRpcTcpBatchResponses(object):
     """ 

@@ -19,27 +19,9 @@
         "context": [{"key": "dlv_watch_view"}]
     },
     {
-        "command": "dlv_start",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": false}],
-        "keys": ["ctrl+f5"]
-    },
-    {
-        "command": "dlv_resume",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["ctrl+f6"]
-    },
-    {
-        "command": "dlv_stop",
-        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["ctrl+f7"]
-    },
-    {
         "command": "dlv_input",
-        "keys": ["shift+f5"]
-    },
-    {
-        "command": "dlv_toggle_breakpoint",
-        "keys": ["ctrl+f9"]
+        "keys": ["shift+f5"],
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
     },
     {
         "command": "dlv_prev_cmd",
@@ -52,8 +34,42 @@
         "keys": ["down"]
     },
     {
-        "command": "dlv_next",
+        "command": "dlv_toggle_breakpoint",
+        "keys": ["f9"]
+    },
+    {
+        "command": "dlv_start",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": false}],
+        "keys": ["f5"]
+    },
+    {
+        "command": "dlv_resume",
         "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
-        "keys": ["Ctrl+f10"]
-    }
+        "keys": ["f5"]
+    },
+    {
+        "command": "dlv_next",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}, {"key": "dlv_next_enable", "operator": "equal", "operand": true}],
+        "keys": ["f6"]
+    },
+    {
+        "command": "dlv_step_in",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
+        "keys": ["f7"]
+    },
+    {
+        "command": "dlv_step_out",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
+        "keys": ["shift+f7"]
+    },
+    {
+        "command": "dlv_restart",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}],
+        "keys": ["f8"]
+    },
+    {
+        "command": "dlv_cancel_next",
+        "context": [{"key": "dlv_running", "operator": "equal", "operand": true}, {"key": "dlv_next_enable", "operator": "equal", "operand": false}],
+        "keys": ["ctrl+f8"]
+    },
 ]

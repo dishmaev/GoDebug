@@ -3,7 +3,7 @@ import sublime_plugin
 
 class DlvView(object):
     def __init__(self, name, window, const, view=None, scroll=False):
-        self.__name = name
+        self.__name = (name if name is not None else '')
         self.__window = window
         self.__const = const
         self.__view = view
@@ -36,7 +36,8 @@ class DlvView(object):
 
     def close(self):
         if self.__view is not None:
-            self.__window.focus_group(self.__get_panel_group())
+            if self.__name != '':
+                self.__window.focus_group(self.__get_panel_group())
             self.__destroy_view()
 
     def clear(self, reset=False):
@@ -50,10 +51,10 @@ class DlvView(object):
         self.__view.settings().set('command_mode', False)
 
     def is_open_at_start(self):
-        return self.__const.get_view_setting(self.__name, self.__const.OPEN_AT_START)
+        return False if self.__name == '' else self.__const.get_view_setting(self.__name, self.__const.OPEN_AT_START)
 
     def is_close_at_stop(self):
-        return self.__const.get_view_setting(self.__name, self.__const.CLOSE_AT_STOP)
+        return False if self.__name == '' else self.__const.get_view_setting(self.__name, self.__const.CLOSE_AT_STOP)
 
     def is_dirty(self):
         return self.__dirty

@@ -135,24 +135,8 @@ class DlvConst(object):
     def load_watches(self):
         return self.__load_project_settings(self.__watch_settings_file_name)
 
-        # data = self.__window.project_data()
-        # if 'settings' in data:
-        #     key = "%s_%s" % (self.__project_settings_prefix, self.__watch_suffix)
-        #     if key in data['settings']:
-        #         return data['settings'][key]
-        # return None
-
     def save_watches(self, watches):
         self.__save_project_settings(self.__watch_settings_file_name, watches)
-
-        # data = self.__window.project_data()
-        # if 'settings' not in data:
-        #     data['settings'] = {}
-        # key = "%s_%s" % (self.__project_settings_prefix, self.__watch_suffix)
-        # if key not in data['settings']:
-        #     data['settings'][key] = {}
-        # data['settings'][key] = watches
-        # self.__window.set_project_data(data)
 
     @property
     def STATE_COMMAND(self):
@@ -204,7 +188,7 @@ class DlvConst(object):
 
     @property
     def STEPOUT_COMMAND(self):
-        return 'stepout'
+        return 'stepOut'
 
     @property
     def RESTART_COMMAND(self):
@@ -283,7 +267,7 @@ class DlvConst(object):
     def ARGS(self):
         return self.__get_settings('args', '') # OPTIONAL
 
-    # The current working directory where delve starts from. Used for "local" or "test" mode
+    # The current working directory where delve starts from. Default is project directory. Used for "local" or "test" mode
     @property
     def CWD(self):
         return self.__get_settings('cwd', '') # OPTIONAL

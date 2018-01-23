@@ -77,4 +77,8 @@
         "caption": "SublimeDelve: Open Variables View",
         "command": "dlv_open_variable_view"
     },
+    {
+        "caption": "SublimeDelve: Open Watches View",
+        "command": "dlv_open_watch_view"
+    },
 ]

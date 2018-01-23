@@ -57,11 +57,7 @@ class DlvProject(object):
     def get_views(self):
         return [self.session_view, self.variable_view, self.watch_view, self.stacktrace_view, self.bkpt_view, self.goroutine_view]
 
-    def __initialize_view(self, name):
-        view = None
-        for v in self.window.views():
-            if v.name() == self.const.get_view_setting(name, self.const.TITLE):
-                view = v
+    def get_new_view(self, name, view):
         if name == self.const.SESSION_VIEW:
             return DlvSessionView(self, view)
         elif name == self.const.CONSOLE_VIEW:
@@ -76,6 +72,14 @@ class DlvProject(object):
             return DlvVariableView(name, self, view)
         elif name == self.const.BREAKPOINT_VIEW:
             return DlvBreakpointView(self, view)
+        return None
+
+    def __initialize_view(self, name):
+        view = None
+        for v in self.window.views():
+            if v.name() == self.const.get_view_setting(name, self.const.TITLE):
+                view = v
+        return self.get_new_view(name, view)
 
     def reset_cursor(self):
         self.cursor = ''
@@ -95,7 +99,7 @@ class DlvProject(object):
     def check_input_view(self, view):
         return self.input_view is not None and view.id() == self.input_view.id()
 
-    def set_input(edit, text):
+    def set_input(self, edit, text):
         self.input_view.erase(edit, sublime.Region(0, self.input_view.size()))
         self.input_view.insert(edit, 0, text)
 
@@ -140,7 +144,8 @@ class DlvProject(object):
             self.logger.error("Exception thrown, details in file: %s" % self.logger.get_file())
         requests = []
         requests.append({"cmd": self.const.STATE_COMMAND, "parms": None})
-        self.add_watch_request(requests)
+        self.add_breakpoint_request(requests)
+        self.add_goroutine_request(requests)
         self.worker.do_batch(requests)
 
     def is_running(self):
@@ -344,7 +349,8 @@ class DlvProject(object):
             assert (len(region) == 1)
             row, col = self.last_cursor_view.rowcol(region[0].a)
             bkpt = self.bkpt_view.find_breakpoint(self.last_cursor_view.file_name(), row + 1)
-            self.last_cursor_view.erase_regions("dlv.suspend_pos")
+            if self.last_cursor_view is not None:
+                self.last_cursor_view.erase_regions("dlv.suspend_pos")
             if bkpt is not None:
                 bkpt._show(self.is_running(), self.last_cursor_view)
             self.last_cursor_view = None
@@ -359,9 +365,28 @@ class DlvProject(object):
                 "entity.name.class", "bookmark", sublime.HIDDEN)
             self.last_cursor_view = view
 
+    def add_breakpoint_request(self, requests):
+        assert (self.is_running())
+        requests.append({"cmd": self.const.BREAKPOINT_COMMAND, "parms": None})
+
+    def add_goroutine_request(self, requests):
+        assert (self.is_running())
+        requests.append({"cmd": self.const.GOROUTINE_COMMAND, "parms": None})
+
     def add_watch_request(self, requests):
+        assert (self.is_running())
         if self.watch_view.is_watches_exist():
-            requests.append({"cmd": self.const.WATCH_COMMAND, "parms": {"watches": self.watch_view.get_watches_as_parm(), "goroutine_id": None}})
+            goroutine_id = self.goroutine_view.get_selected_goroutine_id()
+            frame = self.stacktrace_view.get_selected_frame()
+            parms = {"watches": self.watch_view.get_watches_as_parm()}
+            if goroutine_id > 0:
+                parms['goroutine_id'] = goroutine_id
+                parms['frame'] = frame
+            requests.append({"cmd": self.const.WATCH_COMMAND, "parms": parms})
+
+    def add_variable_request(self, requests, parms):
+        assert (self.is_running())
+        requests.append({"cmd": self.const.VARIABLE_COMMAND, "parms": parms})
 
     def is_local_mode(self):
         return self.const.MODE in [self.const.DEBUG_MODE, self.const.TEST_MODE]
@@ -459,22 +484,28 @@ def worker_callback(prj, responses):
                 update_marker_views = True
                 if view not in update_views:
                     update_views.append(view)
-        elif cmd == const.STACKTRACE_COMMAND:
-            if result:
-                view = prj.stacktrace_view
-                view.load_data(response['response'])
-                if view not in update_views:
-                    update_views.append(view)
         elif cmd == const.GOROUTINE_COMMAND:
             if result:
                 view = prj.goroutine_view
                 view.load_data(response['response'], response['current_goroutine_id'])
                 if view not in update_views:
                     update_views.append(view)
+        elif cmd == const.STACKTRACE_COMMAND:
+            if result:
+                view = prj.stacktrace_view
+                view.load_data(response['response'])
+                if view not in update_views:
+                    update_views.append(view)
+        elif cmd == const.VARIABLE_COMMAND:
+            if result:
+                view = prj.variable_view
+                view.load_variable(response['response'])
+                if view not in update_views:
+                    update_views.append(view)
         elif cmd == const.WATCH_COMMAND:
             if result:
                 view = prj.watch_view
-                view.load_data(response['response'])
+                view.load_watch(response['response'])
                 if view not in update_views:
                     update_views.append(view)
         elif cmd == const.STATE_COMMAND:
@@ -488,7 +519,8 @@ def worker_callback(prj, responses):
             state = DlvStateType()
             state._update(response['response'])
             prj.next_in_progress = state.NextInProgress
-            if state.exited:
+            thread = state._get_thread('currentThread')
+            if state.exited or thread.goroutineID == 0:
                 prj.logger.debug("Process exit with status: %d" % state.exitStatus)
                 prj.terminate_session()
                 return
@@ -574,6 +606,7 @@ class DlvBreakpointType(DlvObjectType):
         assert (view is not None)
         if not self.__showed or running != self.__show_running:
             icon_file = "Packages/SublimeDelve/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
+            assert (view.text_point(self.line - 1, 0) != 0)
             view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", icon_file, sublime.HIDDEN)
             self.__showed = True
             self.__show_running = running
@@ -734,6 +767,7 @@ class DlvBreakpointView(DlvView):
         for bkpt in bkpts_del:
             cur_bkpt = self.find_breakpoint(bkpt.file, bkpt.line)
             if cur_bkpt is None:
+                self.__prj.logger.debug("Breakpoint %s:%d not found, skip update" % (bkpt.file, bkpt.line))
                 continue
             update_view = self.window.find_open_file(cur_bkpt.file)
             if update_view is not None:
@@ -777,15 +811,13 @@ class DlvBreakpointView(DlvView):
         if not self.is_open():
             return
         self.__breakpoints.sort(key=lambda b: (b.file, b.line))
-        bkpts = []
         running = self.__prj.is_running()
         for bkpt in self.__breakpoints:
             self.add_line(bkpt._format(running))
-            bkpts.append({"file": bkpt.file, "line": bkpt.line})
 
     def find_breakpoint_by_idx(self, idx):
         if idx >= 0 and idx < len(self.__breakpoints):
-            return self.__breakpoints[row]
+            return self.__breakpoints[idx]
         return None
 
     def find_breakpoint_by_id(self, id):
@@ -860,15 +892,15 @@ class DlvBreakpointView(DlvView):
         for bkpt in self.__breakpoints:
             requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
             bkpts.append({"file": bkpt.file, "line": bkpt.line})
+        requests.append({"cmd": self.const.CONTINUE_COMMAND, "parms": None})
+        self.__prj.add_goroutine_request(requests)
         if len(requests) > 0:
-            requests.append({"cmd": self.const.BREAKPOINT_COMMAND, "parms": None})
+            self.__prj.add_breakpoint_request(requests)
+        self.__prj.worker.do_batch(requests)
         if self.const.SAVE_BREAKPOINT:
             self.const.save_breakpoints(bkpts)
         if self.const.SAVE_WATCH:
             self.__prj.watch_view.save_watches()
-        requests.append({"cmd": self.const.CONTINUE_COMMAND, "parms": None})
-        self.__prj.add_watch_request(requests)
-        self.__prj.worker.do_batch(requests)
 
     def update_breakpoint_lines(self, view=None):
         got_changes = False
@@ -915,6 +947,9 @@ class DlvStacktraceView(DlvView):
             self.__reset()
         super(DlvStacktraceView, self).clear(reset)
 
+    def get_selected_frame(self):
+        return self.__cursor_position
+
     def select_location(self, view=None):
         if len(self.__locations) == 0:
             self.view.erase_regions("dlv.location_pos")
@@ -937,25 +972,21 @@ class DlvStacktraceView(DlvView):
         self.view.add_regions("dlv.location_pos", [self.view.line(self.view.text_point(self.__cursor_position, 0))], \
             "entity.name.class", "bookmark" if self.__prj.goroutine_view.is_current_goroutine_selected() and \
                         self.__cursor_position == 0 else "dot", sublime.HIDDEN)
-        self.__prj.variable_view.load(loc._get_variables())
-        if self.__prj.variable_view.is_open():
-            self.__prj.variable_view.update_view()
+        goroutine_id = self.__prj.goroutine_view.get_selected_goroutine_id()
+        assert (goroutine_id > 0)
+        requests = []
+        self.__prj.add_variable_request(requests, {"goroutine_id": goroutine_id, "frame": self.__cursor_position})
+        self.__prj.add_watch_request(requests)
+        self.__prj.worker.do_batch(requests)
 
     def load_data(self, data):
-        view = self.__prj.variable_view
-        if view.is_open():
-            view.clear()
         self.__reset()
         if not self.__prj.is_running():
             return
-        load_variables = True
         for element in data['Locations']:
             loc = DlvLocationType()
             loc._update({"Location": element})
             self.__locations.append(loc)
-            if load_variables:
-                view.load(loc._get_variables())
-                load_variables = False
 
     def update_view(self):
         super(DlvStacktraceView, self).update_view()
@@ -975,13 +1006,7 @@ class DlvGoroutineView(DlvView):
         self.__goroutines = []                
         self.__cursor_position = 0
         self.__current_goroutine_position = -1
-        self.__current_goroutine_id = 0
-
-    def is_current_goroutine_selected(self):
-        return self.__cursor_position == self.__current_goroutine_position
-
-    def get_current_goroutine_id(self):
-        return self.__current_goroutine_id
+        self.__selected_goroutine_id = 0
 
     def open(self, reset=False):
         super(DlvGoroutineView, self).open(reset)
@@ -995,6 +1020,12 @@ class DlvGoroutineView(DlvView):
         if reset:
             self.__reset()
         super(DlvGoroutineView, self).clear(reset)
+
+    def is_current_goroutine_selected(self):
+        return self.__cursor_position == self.__current_goroutine_position
+
+    def get_selected_goroutine_id(self):
+        return self.__selected_goroutine_id
 
     def select_goroutine(self, view=None):
         if len(self.__goroutines) == 0:
@@ -1015,15 +1046,15 @@ class DlvGoroutineView(DlvView):
                 self.window.open_file("%s:%d" % (gr._current_file, gr._current_line), sublime.ENCODED_POSITION)
         if gr is None:
             gr = self.__goroutines[self.__cursor_position]
+        self.__selected_goroutine_id = gr.id
         self.view.add_regions("dlv.goroutine_pos", [self.view.line(self.view.text_point(self.__cursor_position, 0))], \
             "entity.name.class", "dot" if not self.is_current_goroutine_selected() else "bookmark", sublime.HIDDEN)
-        self.__prj.worker.do(self.const.STACKTRACE_COMMAND, {"goroutine_id": gr.id})
+        self.__prj.worker.do(self.const.STACKTRACE_COMMAND, {"goroutine_id": self.__selected_goroutine_id})
 
     def load_data(self, data, current_goroutine_id):
         self.__reset()
         if not self.__prj.is_running():
             return
-        self.__current_goroutine_id = current_goroutine_id
         idx = 0
         for element in data['Goroutines']:
             gr = DlvGoroutineType()
@@ -1032,6 +1063,7 @@ class DlvGoroutineView(DlvView):
             if gr.id == current_goroutine_id:
                 self.__cursor_position = idx
                 self.__current_goroutine_position = idx
+                self.__selected_goroutine_id = current_goroutine_id
             idx += 1
 
     def update_view(self):
@@ -1211,23 +1243,26 @@ class DlvVariableView(DlvView):
     def __init__(self, name, prj, view=None):
         super(DlvVariableView, self).__init__(name, prj.window, prj.const, view)
         self.__prj = prj
-        self.__variables = []
+        self.__reset()
         if self.name == self.const.WATCH_VIEW and self.const.SAVE_BREAKPOINT:
             data = self.const.load_watches()
             for element in data:
                 self.__variables.append(DlvtVariableType(name=element))
+    
+    def __reset(self):
+        self.__variables = []
 
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
         if self.is_open():
             self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
             if reset and self.name == self.const.VARIABLE_VIEW:
-                self.__variables = []                
+                self.__reset()
             self.update_view()
 
     def clear(self, reset=False):
         if reset and self.name == self.const.VARIABLE_VIEW:
-            self.__variables = []                
+            self.__reset()
         super(DlvVariableView, self).clear(reset)
 
     def find_watch_by_uuid(self, uuid):
@@ -1237,16 +1272,27 @@ class DlvVariableView(DlvView):
                 return var
         return None
 
-    def load(self, variables):
+    def load_variable(self, data):
         assert (self.name == self.const.VARIABLE_VIEW)
-        self.__variables = variables
+        self.__reset()
+        if not self.__prj.is_running():
+            return
+        for element in data['Locals']:
+            var = DlvtVariableType()
+            var._update({"Variable": element})
+            self.__variables.append(var)
+        for element in data['Arguments']:
+            var = DlvtVariableType()
+            var._update({"Variable": element})
+            self.__variables.append(var)
 
-    def load_data(self, data):
+    def load_watch(self, data):
         assert (self.name == self.const.WATCH_VIEW)
         for element in data:
             if element['result']:
                 var = self.find_watch_by_uuid(element['watch_id'])
                 if var is None:
+                    self.__prj.logger.debug("Watch with uuid %s not found, skip update" % element['watch_id'])
                     continue
                 cur_var = DlvtVariableType()
                 var._update(element['eval'])
@@ -1254,6 +1300,7 @@ class DlvVariableView(DlvView):
             else:
                 var = self.find_watch_by_uuid(element['parms']['watch_id'])
                 if var is None:
+                    self.__prj.logger.debug("Watch with uuid %s not found, skip update" % element['watch_id'])
                     continue
                 if 'error_message' in element:
                     var._set_error_message(element['error_message'])   
@@ -1265,12 +1312,10 @@ class DlvVariableView(DlvView):
         if not self.is_open():
             return
         line = 0
-        watches = []
         running = self.__prj.is_running()
         for var in self.__variables:
             output, line = var._format(running, line=line)
             self.add_line(output, ' ')
-            watches.append({"exp": var.name})
 
     def get_variable_at_line(self, line, var_list=None):
         if var_list is None:
@@ -1302,16 +1347,29 @@ class DlvVariableView(DlvView):
                 self.update_view()
                 self.view.show_at_center(self.view.text_point(row,0))
 
-    def __edit_on_done(self, exp):
+    def exist(self, expr):
         assert (self.name == self.const.WATCH_VIEW)
-        if exp.strip() == "":
+        found = False
+        for var in self.__variables:
+            if var.name == expr:
+                found = True
+                break
+        return found
+
+    def __edit_on_done(self, expr):
+        assert (self.name == self.const.WATCH_VIEW)
+        if expr.strip() == "" or self.exist(expr.strip()):
             return
-        var = DlvtVariableType(name=exp.strip())
+        var = DlvtVariableType(name=expr.strip())
         self.__variables.append(var)
-        goroutine_id = self.__prj.goroutine_view.get_current_goroutine_id()
-        if self.__prj.is_running() and  goroutine_id > 0:
-            self.__prj.worker.do(self.const.WATCH_COMMAND, \
-                {"watches": [{"watch_id": var._uuid, "expr": var.name}], "goroutine_id": goroutine_id})
+        if self.__prj.is_running():
+            goroutine_id = self.__prj.goroutine_view.get_selected_goroutine_id()
+            frame = self.__prj.stacktrace_view.get_selected_frame()
+            parms = {"watches": [{"watch_id": var._uuid, "expr": var.name}]}
+            if goroutine_id > 0:
+                parms['goroutine_id'] = goroutine_id
+                parms['frame'] = frame
+            self.__prj.worker.do(self.const.WATCH_COMMAND, parms)
         else:
             self.update_view()
 
@@ -1479,6 +1537,8 @@ class DlvEventListener(sublime_plugin.EventListener):
             return None
         if key == "dlv_running":
             return prj.is_running() == operand
+        elif key == "dlv_next_enable":
+            return prj.is_next_enabled() == operand
         elif key == "dlv_input_view":
             return prj.check_input_view(view)
         elif key.startswith("dlv_"):
@@ -1490,35 +1550,41 @@ class DlvEventListener(sublime_plugin.EventListener):
 
     def on_activated(self, view):
         ok, prj = is_plugin_enable()
-        if ok:
-            for v in prj.get_views():
-                if v.is_dirty():
-                    v.reset_dirty()
-                    v.close()
-            v = prj.console_view
-            if v.is_dirty():
-                v.reset_dirty()
-                v.close()
-            if view.file_name() is not None:
-                prj.bkpt_view.update_markers([view])
-                if prj.is_running():
-                    prj.update_position(view)
+        if not ok:
+            return
+        if view.is_loading():
+            return
+        if view.file_name() is not None:
+            prj.bkpt_view.update_markers([view])
+            if prj.is_running():
+                prj.update_position(view)
 
     def on_load(self, view):
         ok, prj = is_plugin_enable()
-        if ok:
-            for v in prj.get_views():
-                if v.is_dirty():
-                    v.reset_dirty()
-                    v.close()
-            v = prj.console_view
+        if not ok:
+            return
+        for v in prj.get_views():
+            if view.name() is not None and view.name() == prj.const.get_view_setting(v.name, prj.const.TITLE) and not is_equal(v, view):
+                prj.logger.debug("Closed orphan debugger view '%s'" % view.name())
+                new_view = DlvView(None, prj.window, prj.const, view)
+                new_view.close()
+                return
             if v.is_dirty():
                 v.reset_dirty()
                 v.close()
-            if view.file_name() is not None:
-                prj.bkpt_view.update_markers([view])
-                if prj.is_running():
-                    prj.update_position(view)
+        v = prj.console_view
+        if view.name() is not None and view.name() == prj.const.get_view_setting(v.name, prj.const.TITLE) and not is_equal(v, view):
+            prj.logger.debug("Closed orphan debugger view '%s'" % view.name())
+            new_view = DlvView(None, prj.window, prj.const, view)
+            new_view.close()
+            return
+        if v.is_dirty():
+            v.reset_dirty()
+            v.close()
+        if view.file_name() is not None:
+            prj.bkpt_view.update_markers([view])
+            if prj.is_running():
+                prj.update_position(view)
 
     def on_modified(self, view):
         ok, prj = is_plugin_enable()
@@ -1663,7 +1729,7 @@ class DlvResume(sublime_plugin.WindowCommand):
             return
         requests = []
         requests.append({"cmd": prj.const.CONTINUE_COMMAND, "parms": None})
-        prj.add_watch_request(requests)
+        prj.add_goroutine_request(requests)
         prj.worker.do_batch(requests)
     
     def is_enabled(self):
@@ -1681,7 +1747,7 @@ class DlvNext(sublime_plugin.WindowCommand):
             return
         requests = []
         requests.append({"cmd": prj.const.NEXT_COMMAND, "parms": None})
-        prj.add_watch_request(requests)
+        prj.add_goroutine_request(requests)
         prj.worker.do_batch(requests)
     
     def is_enabled(self):
@@ -1699,7 +1765,7 @@ class DlvStepIn(sublime_plugin.WindowCommand):
             return
         requests = []
         requests.append({"cmd": prj.const.STEP_COMMAND, "parms": None})
-        prj.add_watch_request(requests)
+        prj.add_goroutine_request(requests)
         prj.worker.do_batch(requests)
     
     def is_enabled(self):
@@ -1717,7 +1783,7 @@ class DlvStepOut(sublime_plugin.WindowCommand):
             return
         requests = []
         requests.append({"cmd": prj.const.STEPOUT_COMMAND, "parms": None})
-        prj.add_watch_request(requests)
+        prj.add_goroutine_request(requests)
         prj.worker.do_batch(requests)
     
     def is_enabled(self):
@@ -1736,7 +1802,7 @@ class DlvRestart(sublime_plugin.WindowCommand):
         requests = []
         requests.append({"cmd": prj.const.RESTART_COMMAND, "parms": None})
         requests.append({"cmd": prj.const.CONTINUE_COMMAND, "parms": None})
-        prj.add_watch_request(requests)
+        prj.add_goroutine_request(requests)
         prj.worker.do_batch(requests)
     
     def is_enabled(self):
@@ -1752,7 +1818,10 @@ class DlvCancelNext(sublime_plugin.WindowCommand):
         ok, prj = is_plugin_enable()
         if not ok:
             return
-        prj.worker.do(prj.const.CANCEL_NEXT_COMMAND)
+        requests = []
+        requests.append({"cmd": prj.const.CANCEL_NEXT_COMMAND, "parms": None})
+        prj.add_goroutine_request(requests)
+        prj.worker.do_batch(requests)
     
     def is_enabled(self):
         ok, prj = is_plugin_enable()
