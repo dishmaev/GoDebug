@@ -27,4 +27,4 @@ Based on ideas and sources:
 ```
 
 ## License
-SublimeDelve are released under the MIT license. See [LICENSE](https://github.com/dishmaev/SublimeDelve/blob/develop/LICENSE)
+SublimeDelve are released under the MIT license. See [LICENSE](https://github.com/dishmaev/SublimeDelve/blob/master/LICENSE)
