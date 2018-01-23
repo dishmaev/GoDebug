@@ -227,6 +227,10 @@ class DlvConst(object):
         return 3456
 
     @property
+    def DEFAULT_TIMEOUT(self):
+        return 10
+
+    @property
     def BUFFER(self):
         return 4096
 
@@ -243,9 +247,10 @@ class DlvConst(object):
         return 'remote'
 
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
+    # "debug" | "test" | "remote"
     @property
     def MODE(self):
-        return self.__get_settings('mode', self.DEBUG_MODE) # "debug" | "test" | "remote"
+        return self.__get_settings('mode', self.DEBUG_MODE) # 
 
     # The host of the Delve server
     @property
@@ -262,20 +267,24 @@ class DlvConst(object):
     def LOG(self):
         return self.__get_settings('log', False)
 
-    # Arguments for run the program
+    # Arguments for run the program. (OPTIONAL)
     @property
     def ARGS(self):
-        return self.__get_settings('args', '') # OPTIONAL
+        return self.__get_settings('args', '')
 
-    # The current working directory where delve starts from. Default is project directory. Used for "local" or "test" mode
+    # The current working directory where delve starts from. 
+    # Default is project directory. Used for "local" or "test" mode. (OPTIONAL)
     @property
     def CWD(self):
-        return self.__get_settings('cwd', '') # OPTIONAL
+        return self.__get_settings('cwd', '')
 
-    # For the larger operation, by socket and background thread
+    # For the larger operation, by socket and background thread, in seconds, must be above zero
     @property
     def TIMEOUT(self):
-        return self.__get_settings('timeout', 10) # in seconds
+        value = self.__get_settings('timeout', self.DEFAULT_TIMEOUT)
+        if value <= 0:
+            value = self.DEFAULT_TIMEOUT
+        return value
 
     # Save breakpoints to the settings file before start debug, restore when the project is loaded
     @property
@@ -287,15 +296,16 @@ class DlvConst(object):
     def SAVE_WATCH(self):
         return self.__get_settings('save_watches', True)
 
-    # Whether to log the raw data read from and written to the Delve session and the inferior program.
+    # Whether to log the raw data read from and written to the Delve session and the inferior program
     @property
     def DEBUG(self):
         return self.__get_settings('debug', False)
 
-    # File to optionally write all the raw data read from and written to the Delve session and the inferior program
+    # File to optionally write all the raw data read from and written to the Delve session and the inferior program.
+    # Must be set 'stdout' or file name. If file name set without full path, save into project directory
     @property
     def DEBUG_FILE(self):
-        return self.__get_settings('debug_file', self.STDOUT) # 'stdout' or file name with full path
+        return self.__get_settings('debug_file', self.STDOUT)
 
     # Defalt Delve panel layout
     @property

@@ -1,52 +1,55 @@
 {
-    // // The mode of run Delve server, "remote" mean is not need start dlv headless instance
-    // //"mode": "debug" | "test" | "remove"
+    // Sample configuration of SublimeDelve plugin for any executables, can set in project file
+    // "settings":
+    // {
+    //     "delve_enable": true,
+    //     "sublimedelve_executables":
+    //     {
+    //         "debug":
+    //         {
+    //             "mode": "debug"
+    //         },
+    //         "test":
+    //         {
+    //             "mode": "test"
+    //         }
+    //     }
+    // }
+
+    // Sample redefine any SublimeDelve plugin settings, in project file
+    // "settings":
+    // {
+    //     "delve_enable": true,
+    //     "sublimedelve_port": 7890,
+    // }
+    
+    // The mode of run Delve server, "remote" mean is not need start dlv headless instance
+    // "debug" | "test" | "remote"
     // "mode": "debug",
 
-    // // The host of the Delve server
+    // The host of the Delve server
     // "host": "localhost",
 
-    // // The port of the Delve server
+    // The port of the Delve server
     // "port": "3456",
 
-    // // If set, Delve server run in logging mode. Used for "local" or "test" mode
+    // If set, Delve server run in logging mode. Used for "local" or "test" mode
     // "log": false,
 
-    // // Arguments for run the program. (OPTIONAL)
+    // Arguments for run the program. (OPTIONAL)
     // "args": "",
 
-    // // The current working directory where delve starts from. Used for "local" or "test" mode. (OPTIONAL)
+    // The current working directory where delve starts from. 
+    // Default is project directory. Used for "local" or "test" mode. (OPTIONAL)
     // "cwd": "",
 
-    // // For the larger binaries with lot of shared libraries
-    // // the loading within the Delve could take much longer.
-    // // Configure the thread wait timeout by setting timeout
+    // For the larger operation, by socket and background thread, in seconds, must be above zero
     // "timeout": 10,
 
-    // // File to optionally write all the raw data read from and written to the Delve session and the inferior program.
-    // // Setting it to "stdout" will write the output to the python console
+    // Whether to log the raw data read from and written to the Delve session and the inferior program
+    // "debug": false,
+
+    // File to optionally write all the raw data read from and written to the Delve session and the inferior program.
+    // Must be set 'stdout' or file name. If file name set without full path, project directory used
     // "debug_file": "stdout",
-
-    // // Defalt Delve panel layout
-    // "panel_layout":
-    // {
-    //     "cols": [0.0, 0.33, 0.66, 1.0],
-    //     "rows": [0.0, 0.75, 1.0],
-    //     "cells":
-    //     [
-    //         [0, 0, 3, 1],
-    //         [0, 1, 1, 2],
-    //         [1, 1, 2, 2],
-    //         [2, 1, 3, 2] 
-    //     ]
-    // },
-
-    // // Open view when debugging starts
-    // "session_open_at_start": true,
-
-    // // Open view when debugging starts
-    // "console_open_at_start": true,
-
-    // // Open view when debugging starts
-    // "breakpoints_open_at_start": true,
 }

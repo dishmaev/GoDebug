@@ -820,14 +820,6 @@ class DlvBreakpointView(DlvView):
             return self.__breakpoints[idx]
         return None
 
-    def find_breakpoint_by_id(self, id):
-        for bkpt in self.__breakpoints:
-            if bkpt._is_error():
-                continue
-            if bkpt.id == id:
-                return bkpt
-        return None
-
     def find_breakpoint(self, file, line=None):
         for bkpt in self.__breakpoints:
             if bkpt.file == file and (line is None or line is not None and bkpt.line == line):
@@ -845,7 +837,7 @@ class DlvBreakpointView(DlvView):
                 continue
             else:
                 cur_bkpt._set_uuid(bkpt_uuid)
-            bkpt = self.find_breakpoint_by_id(cur_bkpt.id)
+            bkpt = self.find_breakpoint(cur_bkpt.file, cur_bkpt.line)
             if bkpt is None:
                 bkpts_add.append(cur_bkpt)
             else:
@@ -1987,12 +1979,13 @@ class DlvEnable(sublime_plugin.WindowCommand):
     def run(self):
         ok, prj = is_plugin_enable()
         assert (not ok)
-        if is_project_file_exists(prj.window):
-            data = prj.window.project_data()
+        window = sublime.active_window()
+        if is_project_file_exists(window):
+            data = window.project_data()
             if 'settings' not in data:
                 data['settings'] = {}
             data['settings']['delve_enable'] = True
-            prj.window.set_project_data(data)
+            window.set_project_data(data)
         else:
             sublime.error_message("An open project is required")
 
