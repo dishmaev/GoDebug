@@ -11,12 +11,12 @@ Based on ideas and sources:
 * [GoSublime](https://github.com/DisposaBoy/GoSublime)
 
 ## Installation
-* Using [Package Control](https://packagecontrol.io/docs/usage) Plugin (recommended)
-* Manually clone git repository [SublimeDelve](https://github.com/dishmaev/SublimeDelve) in your package directory
+1. Using [Package Control](https://packagecontrol.io/docs/usage) Plugin (recommended)
+2. Manually clone git repository [SublimeDelve](https://github.com/dishmaev/SublimeDelve) in your package directory
 
-## Project activation
-* On active view of window right click mouse and choose from menu Delve/Enable
-* Manually put specific setting in *\<YourGoProject\>.sublime-project* file
+## Enable plugin for your project
+1. On active view of window right click mouse and choose from menu Delve/Enable (not recommended, if your project file contains necessary commented lines, after execution Sublime Text will remove all commented content)
+2. Manually put specific setting in project file *\<YourGoProject\>.sublime-project*
 ```
 "settings":
 {
