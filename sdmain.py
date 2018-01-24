@@ -857,18 +857,21 @@ class DlvBreakpointView(DlvView):
         for element in elements:
             bkpt = self.find_breakpoint(element['file'], element['line'])
             if bkpt is not None:
-                if not bkpt._is_error():
-                    if self.__prj.is_running():
+                if self.__prj.is_running():
+                    if not bkpt._is_error():
                         requests.append({"cmd": self.const.CLEAR_BREAKPOINT_COMMAND, "parms": {"bkpt_id": bkpt.id, "bkpt_name": bkpt.name}})
-                    bkpts_del.append(bkpt)
+                    else:
+                        bkpts_error_del.append(bkpt)
                 else:
-                    bkpts_error_del.append(bkpt)
+                    bkpts_del.append(bkpt)
             else:
                 value = element['value']
                 if not value.startswith('//') and not value.startswith('/*') and not value.endswith('*/'):
                     bkpt = DlvBreakpointType(element['file'], element['line'])
                     requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
                     bkpts_add.append(bkpt)
+                else:
+                    self.__prj.logger.debug("Source line %s:%d is commented, skip add breakpoint" % (element['file'], element['line']))
         if self.__prj.is_running():
             if len(requests) > 0:
                 self.__prj.worker.do_batch(requests)
@@ -1405,16 +1408,22 @@ class DlvToggleBreakpoint(sublime_plugin.TextCommand):
         update_view = self.view
         file = self.view.file_name()
         if prj.bkpt_view.is_open() and is_equal(self.view, prj.bkpt_view):
-            row = self.view.rowcol(self.view.sel()[0].begin())[0]
-            bkpt = prj.bkpt_view.find_breakpoint_by_idx(row)
+            line = self.view.rowcol(self.view.sel()[0].begin())[0]
+            bkpt = prj.bkpt_view.find_breakpoint_by_idx(line)
             if bkpt is not None:
                 elements.append({"file": bkpt.file, "line": bkpt.line})
+            else:
+                prj.logger.debug("Breakpoint by idx %d not found, skip toggle" % line)
         elif file is not None: # code source file
+            if not prj.is_running():
+                prj.bkpt_view.update_breakpoint_lines(self.view)
             for sel in self.view.sel():
                 line, col = self.view.rowcol(sel.a)
                 value = ''.join(self.view.substr(self.view.line(self.view.text_point(line, 0))).split())
                 if len(value) > 0:
                     elements.append({"file": file, "line": line + 1, "value": value})
+                else:
+                    prj.logger.debug("Source line %d is empty, skip toggle" % line + 1)
         if len(elements) > 0:
             prj.bkpt_view.toggle_breakpoint(elements)    
 
@@ -1548,8 +1557,7 @@ class DlvEventListener(sublime_plugin.EventListener):
             return
         if view.file_name() is not None:
             prj.bkpt_view.update_markers([view])
-            if prj.is_running():
-                prj.update_position(view)
+            prj.update_position(view)
 
     def on_load(self, view):
         ok, prj = is_plugin_enable()
@@ -1575,8 +1583,7 @@ class DlvEventListener(sublime_plugin.EventListener):
             v.close()
         if view.file_name() is not None:
             prj.bkpt_view.update_markers([view])
-            if prj.is_running():
-                prj.update_position(view)
+            prj.update_position(view)
 
     def on_modified(self, view):
         ok, prj = is_plugin_enable()
