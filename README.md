@@ -1,4 +1,4 @@
-# SublimeDelve
+# GoDebug
 
 [Delve](https://github.com/derekparker/delve) plugin for Sublime Text 3.
 
@@ -12,7 +12,7 @@ Based on ideas and sources:
 
 ## Installation
 1. Using [Package Control](https://packagecontrol.io/docs/usage) Plugin (recommended)
-2. Manually clone git repository [SublimeDelve](https://github.com/dishmaev/SublimeDelve) in your package directory
+2. Manually clone git repository [GoDebug](https://github.com/dishmaev/GoDebug) in your package directory
 
 ## Enable plugin for your project
 1. On active view of window right click mouse and choose from menu Delve/Enable (not recommended, if your project file contains necessary commented lines, after execution Sublime Text will remove all commented content)
@@ -27,4 +27,4 @@ Based on ideas and sources:
 ```
 
 ## License
-SublimeDelve are released under the MIT license. See [LICENSE](https://github.com/dishmaev/SublimeDelve/blob/master/LICENSE)
+GoDebug are released under the MIT license. See [LICENSE](https://github.com/dishmaev/GoDebug/blob/master/LICENSE)

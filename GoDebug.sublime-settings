@@ -1,9 +1,9 @@
 {
-    // Sample configuration of SublimeDelve plugin for any executables, can set in project file
+    // Sample configuration of GoDebug plugin for any executables, can set in project file
     // "settings":
     // {
     //     "delve_enable": true,
-    //     "sublimedelve_executables":
+    //     "godebug_executables":
     //     {
     //         "debug":
     //         {
@@ -16,11 +16,11 @@
     //     }
     // }
 
-    // Sample redefine any SublimeDelve plugin settings, in project file
+    // Sample redefine any GoDebug plugin settings, in project file
     // "settings":
     // {
     //     "delve_enable": true,
-    //     "sublimedelve_port": 7890,
+    //     "godebug_port": 7890,
     // }
     
     // The mode of run Delve server, "remote" mean is not need start dlv headless instance

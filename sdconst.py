@@ -4,10 +4,10 @@ import os
 class DlvConst(object):
     def __init__(self, window):
         self.__window = window
-        self.__settings_file_name = "SublimeDelve.sublime-settings"
-        self.__bkpt_settings_file_name = "SublimeDelve.breakpoint-settings"
-        self.__watch_settings_file_name = "SublimeDelve.watch-settings"
-        self.__project_settings_prefix = "sublimedelve"
+        self.__settings_file_name = "GoDebug.sublime-settings"
+        self.__bkpt_settings_file_name = "GoDebug.breakpoint-settings"
+        self.__watch_settings_file_name = "GoDebug.watch-settings"
+        self.__project_settings_prefix = "godebug"
         self.__panel_group_suffix = "group"
         self.__open_at_start_suffix = "open_at_start"
         self.__close_at_stop_suffix = "close_at_stop"
@@ -245,6 +245,10 @@ class DlvConst(object):
     @property
     def REMOTE_MODE(self):
         return 'remote'
+
+    @property
+    def DLV_REGION(self):
+        return 'dlv.suspend_pos'
 
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
     # "debug" | "test" | "remote"

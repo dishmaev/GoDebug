@@ -11,12 +11,12 @@ import re
 import signal
 import uuid
 
-from SublimeDelve.sdconst import DlvConst
-from SublimeDelve.sdlogger import DlvLogger
-from SublimeDelve.sdworker import DlvWorker
+from GoDebug.sdconst import DlvConst
+from GoDebug.sdlogger import DlvLogger
+from GoDebug.sdworker import DlvWorker
 
-from SublimeDelve.sdview import DlvView
-from SublimeDelve.sdobjecttype import *
+from GoDebug.sdview import DlvView
+from GoDebug.sdobjecttype import *
 
 dlv_project = {}
 
@@ -342,7 +342,7 @@ class DlvProject(object):
 
     def clear_position(self):
         if self.last_cursor_view is not None:
-            region = self.last_cursor_view.get_regions("dlv.suspend_pos")
+            region = self.last_cursor_view.get_regions(self.const.DLV_REGION)
             if region is None or len(region) == 0:
                 self.last_cursor_view = None
                 return
@@ -350,7 +350,7 @@ class DlvProject(object):
             row, col = self.last_cursor_view.rowcol(region[0].a)
             bkpt = self.bkpt_view.find_breakpoint(self.last_cursor_view.file_name(), row + 1)
             if self.last_cursor_view is not None:
-                self.last_cursor_view.erase_regions("dlv.suspend_pos")
+                self.last_cursor_view.erase_regions(self.const.DLV_REGION)
             if bkpt is not None:
                 bkpt._show(self.is_running(), self.last_cursor_view)
             self.last_cursor_view = None
@@ -361,7 +361,7 @@ class DlvProject(object):
             bkpt = self.bkpt_view.find_breakpoint(self.cursor, self.cursor_position)
             if bkpt is not None:
                 bkpt._hide(view)
-            view.add_regions("dlv.suspend_pos", [view.line(view.text_point(self.cursor_position - 1, 0))], \
+            view.add_regions(self.const.DLV_REGION, [view.line(view.text_point(self.cursor_position - 1, 0))], \
                 "entity.name.class", "bookmark", sublime.HIDDEN)
             self.last_cursor_view = view
 
@@ -605,7 +605,7 @@ class DlvBreakpointType(DlvObjectType):
     def _show(self, running, view):
         assert (view is not None)
         if not self.__showed or running != self.__show_running:
-            icon_file = "Packages/SublimeDelve/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
+            icon_file = "Packages/GoDebug/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
             assert (view.text_point(self.line - 1, 0) != 0)
             view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", icon_file, sublime.HIDDEN)
             self.__showed = True
@@ -731,7 +731,7 @@ class DlvBreakpointView(DlvView):
     def open(self, reset=False):
         super(DlvBreakpointView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if not self.__prj.is_running():
                 self.update_breakpoint_lines()
             self.update_view()
@@ -932,7 +932,7 @@ class DlvStacktraceView(DlvView):
     def open(self, reset=False):
         super(DlvStacktraceView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -1006,7 +1006,7 @@ class DlvGoroutineView(DlvView):
     def open(self, reset=False):
         super(DlvGoroutineView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -1250,7 +1250,7 @@ class DlvVariableView(DlvView):
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset and self.name == self.const.VARIABLE_VIEW:
                 self.__reset()
             self.update_view()
@@ -1534,6 +1534,8 @@ class DlvRemoveWatch(sublime_plugin.TextCommand):
 class DlvEventListener(sublime_plugin.EventListener):
     def on_query_context(self, view, key, operator, operand, match_all):
         ok, prj = is_plugin_enable()
+        if key == "plugin_enable":
+            return ok == operand
         if not ok:
             return None
         if key == "dlv_running":

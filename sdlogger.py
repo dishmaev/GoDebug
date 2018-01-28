@@ -12,7 +12,7 @@ class DlvLogger(object):
         self.__log_queue = queue.Queue()
         self.__started = False
         self.__lock = threading.RLock()
-        self.__log = logging.getLogger("SublimeDelve")
+        self.__log = logging.getLogger("GoDebug")
         self.__logging_level_switch = {
                 'debug':    self.__log.debug,
                 'info':     self.__log.info,
