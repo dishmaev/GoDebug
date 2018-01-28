@@ -317,7 +317,7 @@
 		</dict>
 	</dict>
 	<key>scopeName</key>
-	<string>sublimedelve.source.go</string>
+	<string>godebug.source.go</string>
 	<key>uuid</key>
 	<string>8cfd78a0-e680-42ab-b0b2-c3b7c5350c00</string>
 </dict>

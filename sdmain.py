@@ -11,12 +11,12 @@ import re
 import signal
 import uuid
 
-from SublimeDelve.sdconst import DlvConst
-from SublimeDelve.sdlogger import DlvLogger
-from SublimeDelve.sdworker import DlvWorker
+from GoDebug.sdconst import DlvConst
+from GoDebug.sdlogger import DlvLogger
+from GoDebug.sdworker import DlvWorker
 
-from SublimeDelve.sdview import DlvView
-from SublimeDelve.sdobjecttype import *
+from GoDebug.sdview import DlvView
+from GoDebug.sdobjecttype import *
 
 dlv_project = {}
 
@@ -605,7 +605,7 @@ class DlvBreakpointType(DlvObjectType):
     def _show(self, running, view):
         assert (view is not None)
         if not self.__showed or running != self.__show_running:
-            icon_file = "Packages/SublimeDelve/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
+            icon_file = "Packages/GoDebug/%s" % ('bkpt_active.png' if running and not self._is_error() else 'bkpt_inactive.png')
             assert (view.text_point(self.line - 1, 0) != 0)
             view.add_regions(self._key, [view.line(view.text_point(self.line - 1, 0))], "keyword.dlv", icon_file, sublime.HIDDEN)
             self.__showed = True
@@ -731,7 +731,7 @@ class DlvBreakpointView(DlvView):
     def open(self, reset=False):
         super(DlvBreakpointView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if not self.__prj.is_running():
                 self.update_breakpoint_lines()
             self.update_view()
@@ -932,7 +932,7 @@ class DlvStacktraceView(DlvView):
     def open(self, reset=False):
         super(DlvStacktraceView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -1006,7 +1006,7 @@ class DlvGoroutineView(DlvView):
     def open(self, reset=False):
         super(DlvGoroutineView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset:
                 self.__reset()
             self.update_view()
@@ -1250,7 +1250,7 @@ class DlvVariableView(DlvView):
     def open(self, reset=False):
         super(DlvVariableView, self).open(reset)
         if self.is_open():
-            self.set_syntax("Packages/SublimeDelve/SublimeDelve.tmLanguage")
+            self.set_syntax("Packages/GoDebug/GoDebug.tmLanguage")
             if reset and self.name == self.const.VARIABLE_VIEW:
                 self.__reset()
             self.update_view()

@@ -4,8 +4,8 @@ import traceback
 import sys 
 import queue
 
-from SublimeDelve.jsonrpctcp_client import JsonRpcTcpClient
-from SublimeDelve.jsonrpctcp_client import JsonRpcTcpProtocolError
+from GoDebug.jsonrpctcp_client import JsonRpcTcpClient
+from GoDebug.jsonrpctcp_client import JsonRpcTcpProtocolError
 
 def __start(connect, const, logger):
     logger.debug("Start worker")

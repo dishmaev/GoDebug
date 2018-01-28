@@ -12,20 +12,20 @@
                 "children":
                 [
                     {
-                        "caption": "SublimeDelve",
+                        "caption": "GoDebug",
                         "children":
                         [
                             {
                                 "command": "open_file", "args":
                                 {
-                                    "file": "${packages}/SublimeDelve/SublimeDelve.sublime-settings"
+                                    "file": "${packages}/GoDebug/GoDebug.sublime-settings"
                                 },
                                 "caption": "Settings – Default"
                             },
                             {
                                 "command": "open_file", "args":
                                 {
-                                    "file": "${packages}/User/SublimeDelve.sublime-settings"
+                                    "file": "${packages}/User/GoDebug.sublime-settings"
                                 },
                                 "caption": "Settings – User"
                             },
@@ -33,7 +33,7 @@
                             {
                                 "command": "open_file", "args":
                                 {
-                                    "file": "${packages}/SublimeDelve/Default.sublime-keymap"
+                                    "file": "${packages}/GoDebug/Default.sublime-keymap"
                                 },
                                 "caption": "Key Bindings – Default"
                             },

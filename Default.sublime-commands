@@ -1,84 +1,84 @@
 [
     {
-        "caption": "Preferences: SublimeDelve Settings – Default",
+        "caption": "Preferences: GoDebug Settings – Default",
         "command": "open_file", "args":
         {
-            "file": "${packages}/SublimeDelve/SublimeDelve.sublime-settings"
+            "file": "${packages}/GoDebug/GoDebug.sublime-settings"
         }
     },
     {
-        "caption": "Preferences: SublimeDelve Settings – User",
+        "caption": "Preferences: GoDebug Settings – User",
         "command": "open_file", "args":
         {
-            "file": "${packages}/User/SublimeDelve.sublime-settings"
+            "file": "${packages}/User/GoDebug.sublime-settings"
         }
     },
     {
-        "caption": "SublimeDelve: Show Input Field",
+        "caption": "GoDebug: Show Input Field",
         "command": "dlv_input"
     },
     {
-        "caption": "SublimeDelve: Start debugging",
+        "caption": "GoDebug: Start debugging",
         "command": "dlv_start"
     },
     {
-        "caption": "SublimeDelve: Resume",
+        "caption": "GoDebug: Resume",
         "command": "dlv_resume"
     },
     {
-        "caption": "SublimeDelve: Next",
+        "caption": "GoDebug: Next",
         "command": "dlv_next"
     },
     {
-        "caption": "SublimeDelve: Step Into",
+        "caption": "GoDebug: Step Into",
         "command": "dlv_step_in"
     },
     {
-        "caption": "SublimeDelve: Step Out",
+        "caption": "GoDebug: Step Out",
         "command": "dlv_step_out"
     },
     {
-        "caption": "SublimeDelve: Stop",
+        "caption": "GoDebug: Stop",
         "command": "dlv_stop"
     },
     {   
-        "caption": "SublimeDelve: Restart",
+        "caption": "GoDebug: Restart",
         "command": "dlv_restart"
     },
     {   
-        "caption": "SublimeDelve: Cancel next",
+        "caption": "GoDebug: Cancel next",
         "command": "dlv_cancel_next"
     },
     {   
-        "caption": "SublimeDelve: Enable",
+        "caption": "GoDebug: Enable",
         "command": "dlv_enable"
     },
     {   
-        "caption": "SublimeDelve: Disable",
+        "caption": "GoDebug: Disable",
         "command": "dlv_disable" 
     },
     {
-        "caption": "SublimeDelve: Open Breakpoint View",
+        "caption": "GoDebug: Open Breakpoint View",
         "command": "dlv_open_breakpoint_view"
     },
     {
-        "caption": "SublimeDelve: Open Stacktrace View",
+        "caption": "GoDebug: Open Stacktrace View",
         "command": "dlv_open_stacktrace_view"
     },
     {
-        "caption": "SublimeDelve: Open Goroutinies View",
+        "caption": "GoDebug: Open Goroutinies View",
         "command": "dlv_open_goroutine_view"
     },
     {
-        "caption": "SublimeDelve: Open Console View",
+        "caption": "GoDebug: Open Console View",
         "command": "dlv_open_console_view"
     },
     {
-        "caption": "SublimeDelve: Open Variables View",
+        "caption": "GoDebug: Open Variables View",
         "command": "dlv_open_variable_view"
     },
     {
-        "caption": "SublimeDelve: Open Watches View",
+        "caption": "GoDebug: Open Watches View",
         "command": "dlv_open_watch_view"
     },
 ]
