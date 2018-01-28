@@ -246,6 +246,10 @@ class DlvConst(object):
     def REMOTE_MODE(self):
         return 'remote'
 
+    @property
+    def DLV_REGION(self):
+        return 'dlv.suspend_pos'
+
     # The mode of run Delve server, "remote" mean is not need start dlv headless instance
     # "debug" | "test" | "remote"
     @property

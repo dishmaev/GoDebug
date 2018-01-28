@@ -342,7 +342,7 @@ class DlvProject(object):
 
     def clear_position(self):
         if self.last_cursor_view is not None:
-            region = self.last_cursor_view.get_regions("dlv.suspend_pos")
+            region = self.last_cursor_view.get_regions(self.const.DLV_REGION)
             if region is None or len(region) == 0:
                 self.last_cursor_view = None
                 return
@@ -350,7 +350,7 @@ class DlvProject(object):
             row, col = self.last_cursor_view.rowcol(region[0].a)
             bkpt = self.bkpt_view.find_breakpoint(self.last_cursor_view.file_name(), row + 1)
             if self.last_cursor_view is not None:
-                self.last_cursor_view.erase_regions("dlv.suspend_pos")
+                self.last_cursor_view.erase_regions(self.const.DLV_REGION)
             if bkpt is not None:
                 bkpt._show(self.is_running(), self.last_cursor_view)
             self.last_cursor_view = None
@@ -361,7 +361,7 @@ class DlvProject(object):
             bkpt = self.bkpt_view.find_breakpoint(self.cursor, self.cursor_position)
             if bkpt is not None:
                 bkpt._hide(view)
-            view.add_regions("dlv.suspend_pos", [view.line(view.text_point(self.cursor_position - 1, 0))], \
+            view.add_regions(self.const.DLV_REGION, [view.line(view.text_point(self.cursor_position - 1, 0))], \
                 "entity.name.class", "bookmark", sublime.HIDDEN)
             self.last_cursor_view = view
 
@@ -1534,6 +1534,8 @@ class DlvRemoveWatch(sublime_plugin.TextCommand):
 class DlvEventListener(sublime_plugin.EventListener):
     def on_query_context(self, view, key, operator, operand, match_all):
         ok, prj = is_plugin_enable()
+        if key == "plugin_enable":
+            return ok == operand
         if not ok:
             return None
         if key == "dlv_running":

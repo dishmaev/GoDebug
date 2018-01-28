@@ -35,7 +35,8 @@
     },
     {
         "command": "dlv_toggle_breakpoint",
-        "keys": ["f9"]
+        "context": [{"key": "plugin_enable", "operator": "equal", "operand": true}],
+        "keys": ["alt+f9"]
     },
     {
         "command": "dlv_start",
