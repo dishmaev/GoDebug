@@ -26,5 +26,19 @@ Based on ideas and sources:
 }
 ```
 
+## Usage
+See [the default key bindings](https://github.com/dishmaev/GoDebug/blob/master/Default.sublime-keymap), [the default mouse map](https://github.com/dishmaev/GoDebug/blob/master/Default.sublime-mousemap) and [the sample setting](https://github.com/dishmaev/GoDebug/blob/master/GoDebug.sublime-settings).
+
+In short:
+* If you have multiple projects, you most likely want to put project specific setting in your project file, with a prefixed "godebug_"
+* If you have multiple executables in the same project, you can add a "godebug_executables" setting to your project settings, and add an entry for each executable's settings
+* Toggle breakpoints with Alt+F9
+* Launch with F5
+* Step out with F7
+* Step into with Shift+F7
+* Click on the appropriate line in the Delve Stacktrace view to go to that stack frame
+* Click a variable in the Delve Variables view to show its children (if available)
+* You can also access some commands by right clicking in any view
+
 ## License
 GoDebug are released under the MIT license. See [LICENSE](https://github.com/dishmaev/GoDebug/blob/master/LICENSE)
