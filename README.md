@@ -11,7 +11,7 @@ Based on ideas and sources:
 * [GoSublime](https://github.com/DisposaBoy/GoSublime)
 
 ## Installation
-1. Using [Package Control](https://packagecontrol.io/docs/usage) Plugin (not ready yes, pull request [#6925](https://github.com/wbond/package_control_channel/pull/6925))
+1. Using [Package Control](https://packagecontrol.io/docs/usage) Plugin (not ready yet, pull request [#6925](https://github.com/wbond/package_control_channel/pull/6925))
 2. Manually clone git repository [GoDebug](https://github.com/dishmaev/GoDebug) in your package directory
 
 ## Enable plugin for your project
