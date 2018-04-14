@@ -1,13 +1,14 @@
 [
-    {
-        "button": "button1", "count": 1,
-        "press_command": "drag_select",
-        "command": "dlv_click"
-    },
-    {
-        "button": "button1", "count": 2,
-        "press_command": "drag_select",
-        "press_args": {"by": "words"},
-        "command": "dlv_double_click"
-    }
+    // Activate mouse for Delve views: Stacktrace, Variables
+    // {
+    //     "button": "button1", "count": 1,
+    //     "press_command": "drag_select",
+    //     "command": "dlv_click"
+    // },
+    // {
+    //     "button": "button1", "count": 2,
+    //     "press_command": "drag_select",
+    //     "press_args": {"by": "words"},
+    //     "command": "dlv_double_click"
+    // }
 ]
