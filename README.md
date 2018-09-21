@@ -35,8 +35,8 @@ In short:
 * Toggle breakpoints with Alt+F9
 * Launch with F5
 * Next with F6
-* Step out with F7
-* Step into with Shift+F7
+* Step into with F7
+* Step out with Shift+F7
 * Click on the appropriate line in the Delve Stacktrace view to go to that stack frame. Deactivated by default, see [the mouse map](https://github.com/dishmaev/GoDebug/blob/master/Default.sublime-mousemap) for details
 * Click a variable in the Delve Variables view to show its children (if available).Deactivated by default, see [the mouse map](https://github.com/dishmaev/GoDebug/blob/master/Default.sublime-mousemap) for details
 * You can also access some commands by right clicking in any view
