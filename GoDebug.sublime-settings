@@ -27,11 +27,14 @@
     // "debug" | "test" | "remote"
     // "mode": "debug",
 
+    // The binary location of the Delve server
+    // "binary": "dlv",
+
     // The host of the Delve server
     // "host": "localhost",
 
     // The port of the Delve server
-    // "port": "3456",
+    // "port": 3456,
 
     // If set, Delve server run in logging mode. Used for "local" or "test" mode
     // "log": false,
