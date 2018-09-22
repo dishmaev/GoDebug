@@ -219,6 +219,10 @@ class DlvConst(object):
         return 'stdout'
 
     @property
+    def DEFAULT_BINARY(self):
+        return 'dlv'
+
+    @property
     def DEFAULT_HOST(self):
         return 'localhost'
 
@@ -254,7 +258,12 @@ class DlvConst(object):
     # "debug" | "test" | "remote"
     @property
     def MODE(self):
-        return self.__get_settings('mode', self.DEBUG_MODE) # 
+        return self.__get_settings('mode', self.DEBUG_MODE)
+
+    # The binary location of the Delve server
+    @property
+    def BINARY(self):
+        return self.__get_settings("binary", self.DEFAULT_BINARY)
 
     # The host of the Delve server
     @property
