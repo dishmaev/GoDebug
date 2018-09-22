@@ -4,8 +4,6 @@ import subprocess
 import threading
 import traceback
 import os
-import json
-import socket 
 import sys 
 import re
 import signal
@@ -871,7 +869,7 @@ class DlvBreakpointView(DlvView):
                     requests.append({"cmd": self.const.CREATE_BREAKPOINT_COMMAND, "parms": bkpt._as_parm})
                     bkpts_add.append(bkpt)
                 else:
-                    self.__prj.logger.debug("Source line %s:%d is commented, skip add breakpoint" % (element['file'], element['line']))
+                    self.__prj.logger.debug("Source line %s:%d is empty or commented, skip add breakpoint" % (element['file'], element['line']))
         if self.__prj.is_running():
             if len(requests) > 0:
                 self.__prj.worker.do_batch(requests)
@@ -1420,10 +1418,7 @@ class DlvToggleBreakpoint(sublime_plugin.TextCommand):
             for sel in self.view.sel():
                 line, col = self.view.rowcol(sel.a)
                 value = ''.join(self.view.substr(self.view.line(self.view.text_point(line, 0))).split())
-                if len(value) > 0:
-                    elements.append({"file": file, "line": line + 1, "value": value})
-                else:
-                    prj.logger.debug("Source line %d is empty, skip toggle" % line + 1)
+                elements.append({"file": file, "line": line + 1, "value": value if len(value) > 0 else '//'})
         if len(elements) > 0:
             prj.bkpt_view.toggle_breakpoint(elements)    
 
@@ -1620,7 +1615,7 @@ class DlvEventListener(sublime_plugin.EventListener):
 
 class DlvStart(sublime_plugin.WindowCommand):
     def __create_cmd(self, prj):
-        value = "dlv"
+        value = prj.const.BINARY
         cmd_server = []
         cmd_session = []
         cmd_server.append(value)
